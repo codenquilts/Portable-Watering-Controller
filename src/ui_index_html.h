@@ -1,0 +1,383 @@
+#pragma once
+#include <Arduino.h>
+
+// ui_index_html.h — clean UI for:
+// - Status + schedules + pump + tank reset
+// - Last watering (RAM log)
+// - Device Settings (device name + AP SSID/pass)
+// - WiFiManager controls (setup mode + reset)
+//
+// Requires these API routes in web.cpp:
+// GET  /api/status
+// POST /api/schedule/morning
+// POST /api/schedule/evening
+// POST /api/pump
+// POST /api/runNow
+// POST /api/tankReset
+// POST /api/device
+// POST /api/wifi/setup
+// POST /api/wifi/reset
+
+static const char INDEX_HTML[] PROGMEM = R"HTML(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portable Watering Control</title>
+<style>
+:root{
+  --blue:#0078d7;--green:#28a745;--red:#dc3545;--yellow:#ffc107;--gray:#f2f2f2;
+  --text:#222;--muted:#6b7280;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;background:var(--gray);color:var(--text);}
+h2{background:var(--blue);color:#fff;margin:0;padding:1rem;font-size:1.2rem;text-align:center;}
+.card{background:#fff;margin:1rem;padding:1rem;border-radius:.7rem;box-shadow:0 2px 6px rgba(0,0,0,.1);}
+.status{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;font-size:1rem;gap:.4rem;}
+label{display:block;margin-top:.6rem;font-size:.95rem;}
+input[type=text],input[type=number]{
+  width:100%;box-sizing:border-box;padding:.45rem;margin-top:.2rem;font-size:1rem;
+}
+input[type=checkbox]{transform:scale(1.4);margin-right:.4rem;}
+button{
+  width:48%;margin-top:.8rem;padding:.6rem;border:none;border-radius:.4rem;
+  font-size:1rem;color:#fff;cursor:pointer;
+}
+.btn-save{background:var(--blue);} .btn-run{background:var(--yellow);color:#000;}
+.btn-on{background:var(--green);} .btn-off{background:var(--red);}
+.btn-refresh{background:var(--blue);width:100%;margin-top:.6rem;}
+.buttons{display:flex;justify-content:space-between;gap:.4rem;flex-wrap:wrap;}
+fieldset{border:none;padding:0;margin:0;} legend{font-weight:700;margin-bottom:.4rem;}
+.small{font-size:.85rem;opacity:.9;}
+.note{font-size:.92rem;line-height:1.35;color:var(--muted);margin:.35rem 0 .6rem 0;}
+.kbd{
+  display:inline-block;padding:.06rem .35rem;border:1px solid #cfcfcf;border-bottom-width:2px;
+  border-radius:.35rem;background:#fafafa;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:.85em;color:#111;
+}
+a.link{color:#fff;text-decoration:underline;}
+a.linkDark{color:var(--blue);text-decoration:none;font-weight:600;}
+a.linkDark:hover{text-decoration:underline;}
+#toast{
+  position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
+  background:var(--blue);color:#fff;padding:.6rem 1rem;border-radius:.5rem;font-size:.9rem;
+  opacity:0;transition:opacity .35s;z-index:9999;max-width:92vw;text-align:center;
+}
+@media(min-width:600px){.card{max-width:560px;margin:1rem auto;}}
+hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
+.row2{display:flex;gap:.6rem;flex-wrap:wrap;}
+.row2 > div{flex:1 1 240px;}
+.pill{display:inline-block;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:999px;padding:.15rem .5rem;font-size:.85rem;color:#111;}
+</style>
+</head>
+<body>
+<h2>
+  Portable Watering v1.2<br>
+  <span id="sysName" class="small">Location: ...</span><br>
+  <span id="netMode" class="small">Network: ...</span>
+</h2>
+
+<div class="card">
+  <div class="status">
+    <span><b>Voltage:</b> <span id="voltage">--</span> V</span>
+    <span><b>Tank:</b> <span id="tanklevel">--</span> mL</span>
+    <span><b>Time:</b> <span id="espTime">--:--</span></span>
+  </div>
+
+  <div class="note" style="margin-top:.6rem">
+    <b>Last watering:</b>
+    <span id="lastWatering" class="pill">—</span>
+  </div>
+
+  <button class="btn-refresh" onclick="loadAll()">Refresh</button>
+</div>
+
+<div class="card">
+  <fieldset>
+    <legend>Morning Schedule</legend>
+    <label>Start Time (24 hr)
+      <input type="text" id="m_start" inputmode="numeric" placeholder="0630">
+    </label>
+    <label>Run Time (min)
+      <input type="number" id="m_run" placeholder="5">
+    </label>
+    <label><input type="checkbox" id="m_enabled"> Enabled</label>
+    <div class="buttons">
+      <button class="btn-save" onclick="saveSchedule('morning')">Save</button>
+      <button class="btn-run" onclick="runNow('Morning')">Run Now</button>
+    </div>
+  </fieldset>
+</div>
+
+<div class="card">
+  <fieldset>
+    <legend>Evening Schedule</legend>
+    <label>Start Time (24 hr)
+      <input type="text" id="e_start" inputmode="numeric" placeholder="1830">
+    </label>
+    <label>Run Time (min)
+      <input type="number" id="e_run" placeholder="5">
+    </label>
+    <label><input type="checkbox" id="e_enabled"> Enabled</label>
+    <div class="buttons">
+      <button class="btn-save" onclick="saveSchedule('evening')">Save</button>
+      <button class="btn-run" onclick="runNow('Evening')">Run Now</button>
+    </div>
+  </fieldset>
+</div>
+
+<div class="card">
+  <fieldset>
+    <legend>Pump Control</legend>
+    <div class="buttons">
+      <button id="pumpOn"  class="btn-on"  onclick="pump(1)">Pump ON</button>
+      <button id="pumpOff" class="btn-off" onclick="pump(0)">Pump OFF</button>
+    </div>
+    <button class="btn-save" style="width:100%;margin-top:.8rem;" onclick="resetTank()">Reset Tank</button>
+  </fieldset>
+</div>
+
+<div class="card">
+  <fieldset>
+    <legend>Device Settings</legend>
+
+    <div class="note">
+      These settings are saved to device configuration (not WiFiManager).
+      Changing the AP name/password affects the device hotspot used for setup.
+    </div>
+
+    <label>Device Name
+      <input type="text" id="devName" placeholder="portable1">
+    </label>
+
+    <label>Setup Hotspot Name (AP SSID)
+      <input type="text" id="apSsid" placeholder="Watering-Setup">
+    </label>
+
+    <label>Setup Hotspot Password (AP Pass)
+      <input type="text" id="apPass" autocomplete="off" placeholder="(leave blank to keep current)">
+    </label>
+
+    <button class="btn-save" style="width:100%" onclick="saveDevice()">Save Device Settings</button>
+  </fieldset>
+</div>
+
+<div class="card">
+  <fieldset>
+    <legend>Wi-Fi Setup</legend>
+
+    <div class="note">
+      <b>Start Wi-Fi Setup</b> reboots into WiFiManager portal mode.
+      Then connect to the device hotspot and open <span class="kbd">http://192.168.4.1/</span>.
+      After saving Wi-Fi, the device reboots back into normal mode.
+    </div>
+
+    <div class="buttons">
+      <button class="btn-run" style="width:100%" onclick="startWifiSetup()">Start Wi-Fi Setup (reboot)</button>
+      <button class="btn-off" style="width:100%" onclick="resetWifi()">Reset Wi-Fi (forget)</button>
+    </div>
+
+    <div class="note" style="margin-top:.8rem">
+      Portal address (when connected to device hotspot):
+      <a class="linkDark" href="http://192.168.4.1/" target="_blank" rel="noopener">192.168.4.1</a>
+    </div>
+  </fieldset>
+</div>
+
+<div id="toast"></div>
+
+<script>
+function showToast(msg){
+  const t=document.getElementById("toast");
+  t.textContent=msg; t.style.opacity=1;
+  setTimeout(()=>t.style.opacity=0,2200);
+}
+
+function digits4(s){
+  s=(s||"").replace(/\D/g,"").slice(0,4);
+  if(s.length===3) s="0"+s;
+  return s.padStart(4,"0");
+}
+function clampRun(n){
+  n=parseInt(n||"0",10);
+  if(n>15){showToast("Max run 15 min"); return 15;}
+  if(n<1){return 1;}
+  return n;
+}
+
+async function apiGet(url){
+  const r=await fetch(url+"?_="+Date.now());
+  if(!r.ok) throw new Error("GET "+url+" "+r.status);
+  return await r.json();
+}
+async function apiPost(url,obj){
+  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(obj||{})});
+  if(!r.ok) throw new Error("POST "+url+" "+r.status);
+  return await r.json();
+}
+
+function fmtTs(ts){
+  // ts expected as unix seconds; if 0/undefined => —
+  ts = Number(ts||0);
+  if(!ts) return "—";
+  const d = new Date(ts*1000);
+  return d.toLocaleString();
+}
+
+async function loadAll(){
+  try{
+    const s=await apiGet("/api/status");
+
+    voltage.textContent=(s.voltage_v ?? 0).toFixed(2);
+    tanklevel.textContent=Math.round(s.tank_ml ?? 0);
+    espTime.textContent=s.time_hhmm ?? "--:--";
+    sysName.textContent="Location: "+(s.device_name||"");
+
+    const ip = (s.ip || "");
+    const nm = (s.net_mode || "");
+    const url = ip ? ("http://" + ip + "/") : "";
+    netMode.innerHTML = "Network: " + nm + (ip ? (" @ <a class='link' href='"+url+"'>"+ip+"</a>") : "");
+
+    m_start.value=(s.morning?.start_hhmm ?? 630).toString().padStart(4,"0");
+    m_run.value=(s.morning?.run_min ?? 5);
+    m_enabled.checked=!!(s.morning?.enabled);
+
+    e_start.value=(s.evening?.start_hhmm ?? 1830).toString().padStart(4,"0");
+    e_run.value=(s.evening?.run_min ?? 5);
+    e_enabled.checked=!!(s.evening?.enabled);
+
+    devName.value = (s.device_name || "");
+    apSsid.value  = (s.ap_ssid || "");
+
+    const on = !!s.pump_on;
+    pumpOn.style.opacity  = on ? "1" : ".5";
+    pumpOff.style.opacity = on ? ".5" : "1";
+
+    // Last watering (RAM log)
+    const start = fmtTs(s.last_start_ts);
+    const runS  = Number(s.last_run_s || 0);
+    const reason = (s.last_reason || "").toString().trim();
+    if(start === "—") {
+      lastWatering.textContent = "—";
+    } else {
+      lastWatering.textContent = start + (runS ? (" - " + runS + "s") : "") + (reason ? (" - " + reason) : "");
+    }
+
+  }catch(e){
+    console.error(e);
+    showToast("Status fetch failed");
+  }
+}
+
+async function saveSchedule(which){
+  try{
+    if(which==="morning"){
+      const start=digits4(m_start.value);
+      const run=clampRun(m_run.value);
+      const en=!!m_enabled.checked;
+      await apiPost("/api/schedule/morning",{start_hhmm:parseInt(start,10),run_min:run,enabled:en});
+      showToast("Morning saved");
+    } else {
+      const start=digits4(e_start.value);
+      const run=clampRun(e_run.value);
+      const en=!!e_enabled.checked;
+      await apiPost("/api/schedule/evening",{start_hhmm:parseInt(start,10),run_min:run,enabled:en});
+      showToast("Evening saved");
+    }
+    loadAll();
+  }catch(e){
+    console.error(e);
+    showToast("Save failed");
+  }
+}
+
+async function pump(state){
+  try{
+    await apiPost("/api/pump",{state:state});
+    showToast(state?"Pump ON":"Pump OFF");
+    setTimeout(loadAll,600);
+  }catch(e){
+    console.error(e);
+    showToast("Pump command failed");
+  }
+}
+
+async function runNow(which){
+  try{
+    const r = await apiPost("/api/runNow",{which:which});
+    if(r && r.ok===false && r.err==="low_tank") showToast("Low tank - refused");
+    else showToast(which+" started");
+    setTimeout(loadAll,600);
+  }catch(e){
+    console.error(e);
+    showToast("RunNow failed");
+  }
+}
+
+async function resetTank(){
+  if(!confirm("Reset tank to full?")) return;
+  try{
+    await apiPost("/api/tankReset",{});
+    showToast("Tank reset");
+    loadAll();
+  }catch(e){
+    console.error(e);
+    showToast("Tank reset failed");
+  }
+}
+
+async function saveDevice(){
+  try{
+    const payload = {
+      device_name: (devName.value || "").trim(),
+      ap_ssid:     (apSsid.value  || "").trim()
+    };
+
+    // Only send ap_pass if user typed one
+    const ap = (apPass.value || "");
+    if(ap.length > 0) payload.ap_pass = ap;
+
+    await apiPost("/api/device", payload);
+    apPass.value = ""; // clear after save
+    showToast("Device settings saved");
+    loadAll();
+  }catch(e){
+    console.error(e);
+    showToast("Device save failed");
+  }
+}
+
+async function startWifiSetup(){
+  showToast("Rebooting into Wi-Fi setup…");
+  try{
+    await apiPost("/api/wifi/setup", {});
+  }catch(e){
+    console.error(e);
+    showToast("Setup start failed");
+    return;
+  }
+  setTimeout(()=>{
+    alert(
+      "Wi-Fi Setup mode started.\n\n" +
+      "1) Connect to the device hotspot (Setup AP)\n" +
+      "2) Open: http://192.168.4.1/\n\n" +
+      "After saving Wi-Fi, the device reboots into normal mode."
+    );
+  }, 250);
+}
+
+async function resetWifi(){
+  if(!confirm("Forget saved Wi-Fi and reboot?")) return;
+  showToast("Resetting Wi-Fi…");
+  try{
+    await apiPost("/api/wifi/reset", {});
+  }catch(e){
+    console.error(e);
+    showToast("Reset failed");
+  }
+}
+
+setInterval(loadAll, 10000);
+window.onload = () => { loadAll(); };
+</script>
+</body>
+</html>
+)HTML";

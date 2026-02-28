@@ -1,0 +1,151 @@
+#include "scheduler.h"
+#include "config.h"
+#include "wifi_mgr.h"
+#include "led_status.h"
+#include <time.h>
+
+// Stop timer (ms) for safety shutoff
+static uint32_t g_pumpStopAtMs = 0;
+
+// ---------- helpers ----------
+static void ledSetForNetwork() {
+  ledSetMode(wifiGetState() == WifiModeState::STA_CONNECTED
+               ? LedMode::HEARTBEAT
+               : LedMode::AP_DOUBLE);
+}
+
+static bool getNow(struct tm& t) {
+  return getLocalTime(&t, 50); // short timeout
+}
+
+static uint16_t nowHHMM(const struct tm& t) {
+  return (uint16_t)(t.tm_hour * 100 + t.tm_min);
+}
+
+static uint32_t minuteKey(const struct tm& t) {
+  // YYYYMMDDHHMM
+  uint32_t y  = (uint32_t)(t.tm_year + 1900);
+  uint32_t mo = (uint32_t)(t.tm_mon + 1);
+  uint32_t d  = (uint32_t)t.tm_mday;
+  uint32_t hh = (uint32_t)t.tm_hour;
+  uint32_t mm = (uint32_t)t.tm_min;
+  return y * 100000000UL + mo * 1000000UL + d * 10000UL + hh * 100UL + mm;
+}
+
+static uint32_t epochNow() {
+  time_t now = time(nullptr);
+  if (now < 100000) return 0; // time not set
+  return (uint32_t)now;
+}
+
+static void setReason(RuntimeState& st, const char* reason) {
+  if (!reason || !*reason) reason = "UNKNOWN";
+  strncpy(st.lastReason, reason, sizeof(st.lastReason) - 1);
+  st.lastReason[sizeof(st.lastReason) - 1] = 0;
+}
+
+// ---------- lifecycle ----------
+void schedulerBegin() {
+  g_pumpStopAtMs = 0;
+
+  pinMode(PIN_RELAY, OUTPUT);
+  digitalWrite(PIN_RELAY, RELAY_OFF_LEVEL);
+}
+
+// 3-arg version (reason-aware)
+void pumpStartForMinutes(RuntimeState& st, uint8_t minutes, const char* reason) {
+  pinMode(PIN_RELAY, OUTPUT);
+
+  digitalWrite(PIN_RELAY, RELAY_ON_LEVEL);
+  st.pumpOn = true;
+
+  // LED: pump active
+  ledSetMode(LedMode::SOLID_ON);
+
+  if (minutes == 0) minutes = 1;
+  g_pumpStopAtMs = millis() + (uint32_t)minutes * 60UL * 1000UL;
+
+  // ----- RAM log -----
+  setReason(st, reason);
+  st.lastStartTs = epochNow();
+  st.lastStopTs  = 0;
+  st.lastRunS    = 0;
+}
+
+void pumpStop(RuntimeState& st) {
+  pinMode(PIN_RELAY, OUTPUT);
+
+  digitalWrite(PIN_RELAY, RELAY_OFF_LEVEL);
+  st.pumpOn = false;
+  g_pumpStopAtMs = 0;
+
+  // LED: back to network indication
+  ledSetForNetwork();
+
+  // ----- RAM log -----
+  uint32_t stopTs = epochNow();
+  st.lastStopTs = stopTs;
+
+  if (st.lastStartTs && stopTs && stopTs >= st.lastStartTs) {
+    st.lastRunS = stopTs - st.lastStartTs;
+  }
+}
+
+// ---------- schedule start ----------
+static void tryStartSchedule(DeviceCfg& cfg, RuntimeState& st, uint16_t hhmm, uint32_t mkey) {
+  if (st.pumpOn) return;
+  if (!st.bootReady) return;
+
+  // Tank safety (consume the minute so we don't spam attempts)
+  if (cfg.tankLevelMl <= cfg.minLevelMl) {
+    st.lastMinuteKey = mkey;
+    return;
+  }
+
+  // Morning
+  if (cfg.morning.enabled && hhmm == cfg.morning.startHHMM) {
+    st.lastMinuteKey = mkey;
+    Serial.printf("SCHEDULE START: Morning %04u for %u min\n",
+                  cfg.morning.startHHMM, cfg.morning.runMin);
+    pumpStartForMinutes(st, cfg.morning.runMin, "MORNING");
+    return;
+  }
+
+  // Evening
+  if (cfg.evening.enabled && hhmm == cfg.evening.startHHMM) {
+    st.lastMinuteKey = mkey;
+    Serial.printf("SCHEDULE START: Evening %04u for %u min\n",
+                  cfg.evening.startHHMM, cfg.evening.runMin);
+    pumpStartForMinutes(st, cfg.evening.runMin, "EVENING");
+    return;
+  }
+
+  st.lastMinuteKey = mkey;
+}
+
+// ---------- main loop ----------
+void schedulerLoop(DeviceCfg& cfg, RuntimeState& st) {
+  // Auto stop pump
+  if (st.pumpOn && g_pumpStopAtMs != 0) {
+    if ((int32_t)(millis() - g_pumpStopAtMs) >= 0) {
+      // mark why it stopped (only if it wasn't already a known type)
+      if (strncmp(st.lastReason, "MORNING", 7) != 0 &&
+          strncmp(st.lastReason, "EVENING", 7) != 0 &&
+          strncmp(st.lastReason, "MANUAL", 6)  != 0 &&
+          strncmp(st.lastReason, "MQTT", 4)    != 0) {
+        setReason(st, "TIMEOUT");
+      }
+      pumpStop(st);
+    }
+  }
+
+  // Check schedules once per minute
+  struct tm t;
+  if (!getNow(t)) return;
+
+  const uint16_t hhmm = nowHHMM(t);
+  const uint32_t mkey = minuteKey(t);
+
+  if (st.lastMinuteKey == mkey) return;
+  tryStartSchedule(cfg, st, hhmm, mkey);
+}
