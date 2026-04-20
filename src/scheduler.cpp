@@ -1,7 +1,12 @@
+// scheduler.cpp — clean replacement (non-blocking time via time_mgr, reason-aware logs)
+
 #include "scheduler.h"
 #include "config.h"
 #include "wifi_mgr.h"
 #include "led_status.h"
+#include "time_mgr.h"
+
+#include <Arduino.h>
 #include <time.h>
 
 // Stop timer (ms) for safety shutoff
@@ -14,12 +19,13 @@ static void ledSetForNetwork() {
                : LedMode::AP_DOUBLE);
 }
 
-static bool getNow(struct tm& t) {
-  return getLocalTime(&t, 50); // short timeout
-}
-
 static uint16_t nowHHMM(const struct tm& t) {
   return (uint16_t)(t.tm_hour * 100 + t.tm_min);
+}
+
+static bool scheduleActiveOnDay(const ScheduleCfg& sched, const struct tm& t) {
+  if (t.tm_wday < 0 || t.tm_wday > 6) return false;
+  return (sched.daysMask & (1U << t.tm_wday)) != 0;
 }
 
 static uint32_t minuteKey(const struct tm& t) {
@@ -30,12 +36,6 @@ static uint32_t minuteKey(const struct tm& t) {
   uint32_t hh = (uint32_t)t.tm_hour;
   uint32_t mm = (uint32_t)t.tm_min;
   return y * 100000000UL + mo * 1000000UL + d * 10000UL + hh * 100UL + mm;
-}
-
-static uint32_t epochNow() {
-  time_t now = time(nullptr);
-  if (now < 100000) return 0; // time not set
-  return (uint32_t)now;
 }
 
 static void setReason(RuntimeState& st, const char* reason) {
@@ -67,7 +67,7 @@ void pumpStartForMinutes(RuntimeState& st, uint8_t minutes, const char* reason) 
 
   // ----- RAM log -----
   setReason(st, reason);
-  st.lastStartTs = epochNow();
+  st.lastStartTs = timeIsValid() ? (uint32_t)timeNow() : 0;
   st.lastStopTs  = 0;
   st.lastRunS    = 0;
 }
@@ -83,7 +83,7 @@ void pumpStop(RuntimeState& st) {
   ledSetForNetwork();
 
   // ----- RAM log -----
-  uint32_t stopTs = epochNow();
+  uint32_t stopTs = timeIsValid() ? (uint32_t)timeNow() : 0;
   st.lastStopTs = stopTs;
 
   if (st.lastStartTs && stopTs && stopTs >= st.lastStartTs) {
@@ -92,7 +92,7 @@ void pumpStop(RuntimeState& st) {
 }
 
 // ---------- schedule start ----------
-static void tryStartSchedule(DeviceCfg& cfg, RuntimeState& st, uint16_t hhmm, uint32_t mkey) {
+static void tryStartSchedule(DeviceCfg& cfg, RuntimeState& st, const struct tm& t, uint16_t hhmm, uint32_t mkey) {
   if (st.pumpOn) return;
   if (!st.bootReady) return;
 
@@ -103,7 +103,9 @@ static void tryStartSchedule(DeviceCfg& cfg, RuntimeState& st, uint16_t hhmm, ui
   }
 
   // Morning
-  if (cfg.morning.enabled && hhmm == cfg.morning.startHHMM) {
+  if (cfg.morning.enabled &&
+      scheduleActiveOnDay(cfg.morning, t) &&
+      hhmm == cfg.morning.startHHMM) {
     st.lastMinuteKey = mkey;
     Serial.printf("SCHEDULE START: Morning %04u for %u min\n",
                   cfg.morning.startHHMM, cfg.morning.runMin);
@@ -112,7 +114,9 @@ static void tryStartSchedule(DeviceCfg& cfg, RuntimeState& st, uint16_t hhmm, ui
   }
 
   // Evening
-  if (cfg.evening.enabled && hhmm == cfg.evening.startHHMM) {
+  if (cfg.evening.enabled &&
+      scheduleActiveOnDay(cfg.evening, t) &&
+      hhmm == cfg.evening.startHHMM) {
     st.lastMinuteKey = mkey;
     Serial.printf("SCHEDULE START: Evening %04u for %u min\n",
                   cfg.evening.startHHMM, cfg.evening.runMin);
@@ -139,13 +143,16 @@ void schedulerLoop(DeviceCfg& cfg, RuntimeState& st) {
     }
   }
 
-  // Check schedules once per minute
+  // Check schedules once per minute (non-blocking)
+  if (!timeIsValid()) return;
+
+  time_t now = timeNow();
   struct tm t;
-  if (!getNow(t)) return;
+  localtime_r(&now, &t);
 
   const uint16_t hhmm = nowHHMM(t);
   const uint32_t mkey = minuteKey(t);
 
   if (st.lastMinuteKey == mkey) return;
-  tryStartSchedule(cfg, st, hhmm, mkey);
+  tryStartSchedule(cfg, st, t, hhmm, mkey);
 }

@@ -20,13 +20,20 @@ bool loadConfig(DeviceCfg& cfg) {
   cfg.apSsid     = getStringSafe("apSsid", cfg.apSsid);
   cfg.apPass     = getStringSafe("apPass", cfg.apPass);
 
+  cfg.notifyEmail    = getStringSafe("notifyEmail", cfg.notifyEmail);
+  cfg.notifyLowTank  = prefs.getBool("notifyLow", cfg.notifyLowTank);
+  cfg.notifyErrors   = prefs.getBool("notifyErr", cfg.notifyErrors);
+  cfg.notifyStatus   = prefs.getBool("notifyStat", cfg.notifyStatus);
+
   cfg.morning.startHHMM = prefs.getUShort("mStart", cfg.morning.startHHMM);
   cfg.morning.runMin    = prefs.getUChar("mRun",   cfg.morning.runMin);
   cfg.morning.enabled   = prefs.getBool("mEn",     cfg.morning.enabled);
+  cfg.morning.daysMask  = prefs.getUChar("mDays",  cfg.morning.daysMask);
 
   cfg.evening.startHHMM = prefs.getUShort("eStart", cfg.evening.startHHMM);
   cfg.evening.runMin    = prefs.getUChar("eRun",    cfg.evening.runMin);
   cfg.evening.enabled   = prefs.getBool("eEn",      cfg.evening.enabled);
+  cfg.evening.daysMask  = prefs.getUChar("eDays",   cfg.evening.daysMask);
 
   cfg.tankLevelMl   = prefs.getFloat("tankLvl", cfg.tankLevelMl);
   cfg.usageMl       = prefs.getFloat("usage",   cfg.usageMl);
@@ -48,13 +55,20 @@ bool saveConfig(const DeviceCfg& cfg) {
   putStringSafe("apSsid", cfg.apSsid);
   putStringSafe("apPass", cfg.apPass);
 
+  putStringSafe("notifyEmail", cfg.notifyEmail);
+  prefs.putBool("notifyLow", cfg.notifyLowTank);
+  prefs.putBool("notifyErr", cfg.notifyErrors);
+  prefs.putBool("notifyStat", cfg.notifyStatus);
+
   prefs.putUShort("mStart", cfg.morning.startHHMM);
   prefs.putUChar ("mRun",   cfg.morning.runMin);
   prefs.putBool  ("mEn",    cfg.morning.enabled);
+  prefs.putUChar ("mDays",  cfg.morning.daysMask);
 
   prefs.putUShort("eStart", cfg.evening.startHHMM);
   prefs.putUChar ("eRun",   cfg.evening.runMin);
   prefs.putBool  ("eEn",    cfg.evening.enabled);
+  prefs.putUChar ("eDays",  cfg.evening.daysMask);
 
   prefs.putFloat("tankLvl", cfg.tankLevelMl);
   prefs.putFloat("usage",   cfg.usageMl);

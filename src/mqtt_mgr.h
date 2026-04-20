@@ -5,5 +5,5 @@
 #include "tank.h"
 
 void mqttBegin(const DeviceCfg& cfg);
-void mqttTick(const DeviceCfg& cfg, RuntimeState& st, SensorsState& ss);
+void mqttTick(DeviceCfg& cfg, RuntimeState& st, SensorsState& ss);
 bool mqttConnected();

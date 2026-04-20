@@ -5,6 +5,7 @@ struct ScheduleCfg {
   uint16_t startHHMM = 630;   // e.g. 0630
   uint8_t  runMin    = 5;     // minutes
   bool     enabled   = true;
+  uint8_t  daysMask  = 0x7F;  // bit0=Sun ... bit6=Sat
   bool     triggered = false; // daily trigger latch
 };
 
@@ -15,6 +16,11 @@ struct DeviceCfg {
 
   String apSsid  = "Watering-Setup";
   String apPass  = "water1234";
+
+  String notifyEmail;
+  bool   notifyLowTank  = true;
+  bool   notifyErrors   = true;
+  bool   notifyStatus   = false;
 
   ScheduleCfg morning;
   ScheduleCfg evening;

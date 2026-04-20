@@ -66,6 +66,9 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
 .row2{display:flex;gap:.6rem;flex-wrap:wrap;}
 .row2 > div{flex:1 1 240px;}
 .pill{display:inline-block;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:999px;padding:.15rem .5rem;font-size:.85rem;color:#111;}
+.days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:.35rem;margin-top:.45rem;}
+.day{display:flex;align-items:center;justify-content:center;padding:.45rem .2rem;border:1px solid #d1d5db;border-radius:.45rem;background:#fafafa;font-size:.86rem;}
+.day input{margin:0 .25rem 0 0;transform:scale(1.1);}
 </style>
 </head>
 <body>
@@ -101,6 +104,16 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
       <input type="number" id="m_run" placeholder="5">
     </label>
     <label><input type="checkbox" id="m_enabled"> Enabled</label>
+    <label>Days of Week</label>
+    <div class="days" id="m_days">
+      <label class="day"><input type="checkbox" data-day="0">Sun</label>
+      <label class="day"><input type="checkbox" data-day="1">Mon</label>
+      <label class="day"><input type="checkbox" data-day="2">Tue</label>
+      <label class="day"><input type="checkbox" data-day="3">Wed</label>
+      <label class="day"><input type="checkbox" data-day="4">Thu</label>
+      <label class="day"><input type="checkbox" data-day="5">Fri</label>
+      <label class="day"><input type="checkbox" data-day="6">Sat</label>
+    </div>
     <div class="buttons">
       <button class="btn-save" onclick="saveSchedule('morning')">Save</button>
       <button class="btn-run" onclick="runNow('Morning')">Run Now</button>
@@ -118,6 +131,16 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
       <input type="number" id="e_run" placeholder="5">
     </label>
     <label><input type="checkbox" id="e_enabled"> Enabled</label>
+    <label>Days of Week</label>
+    <div class="days" id="e_days">
+      <label class="day"><input type="checkbox" data-day="0">Sun</label>
+      <label class="day"><input type="checkbox" data-day="1">Mon</label>
+      <label class="day"><input type="checkbox" data-day="2">Tue</label>
+      <label class="day"><input type="checkbox" data-day="3">Wed</label>
+      <label class="day"><input type="checkbox" data-day="4">Thu</label>
+      <label class="day"><input type="checkbox" data-day="5">Fri</label>
+      <label class="day"><input type="checkbox" data-day="6">Sat</label>
+    </div>
     <div class="buttons">
       <button class="btn-save" onclick="saveSchedule('evening')">Save</button>
       <button class="btn-run" onclick="runNow('Evening')">Run Now</button>
@@ -203,6 +226,26 @@ function clampRun(n){
   if(n<1){return 1;}
   return n;
 }
+function normalizeDaysMask(mask){
+  return Number(mask ?? 127) & 127;
+}
+function setDays(prefix, days){
+  const mask = Array.isArray(days)
+    ? days.reduce((acc, on, idx)=>acc | ((on ? 1 : 0) << idx), 0)
+    : normalizeDaysMask(days);
+  document.querySelectorAll(`#${prefix}_days input[data-day]`).forEach(el=>{
+    const bit = Number(el.dataset.day);
+    el.checked = !!(mask & (1 << bit));
+  });
+}
+function getDaysMask(prefix){
+  let mask = 0;
+  document.querySelectorAll(`#${prefix}_days input[data-day]`).forEach(el=>{
+    const bit = Number(el.dataset.day);
+    if(el.checked) mask |= (1 << bit);
+  });
+  return normalizeDaysMask(mask);
+}
 
 async function apiGet(url){
   const r=await fetch(url+"?_="+Date.now());
@@ -240,10 +283,12 @@ async function loadAll(){
     m_start.value=(s.morning?.start_hhmm ?? 630).toString().padStart(4,"0");
     m_run.value=(s.morning?.run_min ?? 5);
     m_enabled.checked=!!(s.morning?.enabled);
+    setDays("m", s.morning?.days ?? s.morning?.days_mask ?? 127);
 
     e_start.value=(s.evening?.start_hhmm ?? 1830).toString().padStart(4,"0");
     e_run.value=(s.evening?.run_min ?? 5);
     e_enabled.checked=!!(s.evening?.enabled);
+    setDays("e", s.evening?.days ?? s.evening?.days_mask ?? 127);
 
     devName.value = (s.device_name || "");
     apSsid.value  = (s.ap_ssid || "");
@@ -274,13 +319,15 @@ async function saveSchedule(which){
       const start=digits4(m_start.value);
       const run=clampRun(m_run.value);
       const en=!!m_enabled.checked;
-      await apiPost("/api/schedule/morning",{start_hhmm:parseInt(start,10),run_min:run,enabled:en});
+      const daysMask=getDaysMask("m");
+      await apiPost("/api/schedule/morning",{start_hhmm:parseInt(start,10),run_min:run,enabled:en,days_mask:daysMask});
       showToast("Morning saved");
     } else {
       const start=digits4(e_start.value);
       const run=clampRun(e_run.value);
       const en=!!e_enabled.checked;
-      await apiPost("/api/schedule/evening",{start_hhmm:parseInt(start,10),run_min:run,enabled:en});
+      const daysMask=getDaysMask("e");
+      await apiPost("/api/schedule/evening",{start_hhmm:parseInt(start,10),run_min:run,enabled:en,days_mask:daysMask});
       showToast("Evening saved");
     }
     loadAll();

@@ -5,6 +5,7 @@
 #include <WiFiManager.h>
 #include <Preferences.h>
 #include <ESPmDNS.h>
+#include "time_mgr.h"
 
 static WifiModeState g_state = WifiModeState::AP_CAPTIVE;
 static bool g_mdnsStarted = false;
@@ -99,12 +100,15 @@ WifiModeState wifiBegin(DeviceCfg& cfg) {
 
     // If user saved WiFi, we should now be connected
     if (ok && WiFi.status() == WL_CONNECTED) {
-      Serial.printf("WiFi configured, IP=%s\n", WiFi.localIP().toString().c_str());
-      wifiClearSetupModeFlag();
-      g_state = WifiModeState::STA_CONNECTED;
-      mdnsStart(cfg.deviceName);
-      return g_state;
-    }
+  Serial.printf("WiFi configured, IP=%s\n", WiFi.localIP().toString().c_str());
+  wifiClearSetupModeFlag();
+  g_state = WifiModeState::STA_CONNECTED;
+
+  timeOnWifiConnected();          // <-- ADD THIS (starts NTP, non-blocking)
+
+  mdnsStart(cfg.deviceName);
+  return g_state;
+}
 
     // If portal exited for any reason, remain AP_CAPTIVE
     g_state = WifiModeState::AP_CAPTIVE;
@@ -122,11 +126,15 @@ WifiModeState wifiBegin(DeviceCfg& cfg) {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    g_state = WifiModeState::STA_CONNECTED;
-    Serial.printf("WiFi connected, IP=%s\n", WiFi.localIP().toString().c_str());
-    mdnsStart(cfg.deviceName);
-    return g_state;
-  }
+  g_state = WifiModeState::STA_CONNECTED;
+  Serial.printf("WiFi connected, IP=%s\n", WiFi.localIP().toString().c_str());
+
+  timeOnWifiConnected();          // start NTP (non-blocking)
+  Serial.println("NTP start: timeOnWifiConnected()");
+
+  mdnsStart(cfg.deviceName);
+  return g_state;
+}
 
   // AP fallback (your own UI on port 80)
   WiFi.disconnect(true);

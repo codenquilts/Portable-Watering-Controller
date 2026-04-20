@@ -5,6 +5,7 @@
 struct RuntimeState {
   bool bootReady = false;
   bool pumpOn = false;
+  bool lowTankEmailSent = false;
 
   // Used to avoid retriggering schedules multiple times in the same minute
   uint32_t lastMinuteKey = 0; // YYYYMMDDHHMM-like key
