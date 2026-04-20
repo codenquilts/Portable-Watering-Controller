@@ -75,6 +75,10 @@ void webBegin(DeviceCfg& cfg, RuntimeState& st, SensorsState& ss) {
 server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* req){
   StaticJsonDocument<2048> doc;
 
+  doc["app_name"]   = APP_NAME;
+  doc["fw_version"] = FW_VERSION;
+  doc["fw_build"]   = FW_BUILD;
+
   doc["device_name"] = g_cfg->deviceName;
   doc["net_mode"]    = (wifiGetState() == WifiModeState::STA_CONNECTED) ? "STA" : "AP";
   doc["ip"]          = wifiIpString();

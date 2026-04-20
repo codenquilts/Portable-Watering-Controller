@@ -70,9 +70,10 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
 </head>
 <body>
 <h2>
-  Portable Watering v1.2<br>
+  Portable Watering <br>
   <span id="sysName" class="small">Location: ...</span><br>
-  <span id="netMode" class="small">Network: ...</span>
+  <span id="netMode" class="small">Network: ...</span><br>
+  <span id="fwver" class="small">FW: ...</span>
 </h2>
 
 <div class="card">
@@ -230,7 +231,7 @@ async function loadAll(){
     tanklevel.textContent=Math.round(s.tank_ml ?? 0);
     espTime.textContent=s.time_hhmm ?? "--:--";
     sysName.textContent="Location: "+(s.device_name||"");
-
+    fwver.textContent = (s.app_name ? (s.app_name + " v") : "FW: ") + (s.fw_version || "?");
     const ip = (s.ip || "");
     const nm = (s.net_mode || "");
     const url = ip ? ("http://" + ip + "/") : "";

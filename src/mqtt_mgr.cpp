@@ -191,7 +191,7 @@ static void onMqttMessage(char* tpc, byte* payload, unsigned int length) {
 // -------------------- Connect --------------------
 void mqttBegin(const DeviceCfg& cfg) {
   g_devId = sanitizeId(cfg.deviceName);
-  g_base  = "pwb/" + g_devId;
+  g_base  = "watering/" + g_devId;
   g_lwtTopic = topic("state/online");
 
   g_mqtt.setServer(MQTT_HOST, MQTT_PORT);

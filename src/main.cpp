@@ -33,6 +33,9 @@ void setup() {
   delay(150);
 
   bootStartMs = millis();
+  
+  // Booting message
+  Serial.printf("%s v%s booting... (%s)\n", APP_NAME, FW_VERSION, FW_BUILD);
 
   // LED early boot indication
   ledBegin(LED_PIN, LED_ACTIVE_LOW);

@@ -22,7 +22,12 @@ static constexpr uint8_t PIN_RELAY = 16;
 #define LED_ACTIVE_LOW false
 #endif
 
-
+// ----------------------------
+// Firmware identity
+// ----------------------------
+#define APP_NAME        "Portable Watering Bin"
+#define FW_VERSION      "1.2.0"          // <-- change only this when you release
+#define FW_BUILD        __DATE__ " " __TIME__
 
 // ADC (voltage sense)
 static constexpr uint8_t PIN_ADC_VBAT = 34;   // input only pin (good choice)
