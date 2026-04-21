@@ -7,6 +7,7 @@ ESP32-based portable watering controller with:
 - tank-level safety lockout
 - Wi-Fi setup portal
 - MQTT state reporting and remote control
+- optional SMTP email alerts for low tank and error conditions
 
 ## What The System Does
 
@@ -28,6 +29,13 @@ Main functions:
   The controller records the last run start time, stop time, duration, and reason.
 - Remote monitoring
   Pump state, tank level, time, schedule settings, and events are published over MQTT.
+- Email warnings
+  Optional SMTP email alerts can be sent for low tank warnings and runtime errors.
+
+## Home Assistant Discovery
+
+When MQTT is enabled, the controller publishes Home Assistant discovery payloads under `homeassistant/<component>/<device>/...`.
+This allows supported Home Assistant installations to discover sensor and binary sensor entities automatically.
 
 ## How It Works
 
@@ -47,6 +55,10 @@ watering/<device>/
 ```
 
 `<device>` is based on the device name, converted to lowercase and sanitized.
+
+MQTT broker details are saved on the device and can be changed from the web UI after flashing. `src/config.h` still provides first-boot defaults for `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER`, and `MQTT_PASS`, but users do not need to rebuild the firmware to change them.
+
+Optional SMTP settings are also saved on the device and editable in the web UI. `src/config.h` only provides first-boot defaults for `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, and `SMTP_USE_SSL`.
 
 Example:
 
@@ -230,6 +242,9 @@ The built-in web interface supports:
 - tank reset
 - device naming
 - setup hotspot name and password
+- notification email options
+- MQTT broker settings
+- SMTP email settings
 - Wi-Fi setup and Wi-Fi reset actions
 
 ## Safety Notes
@@ -250,8 +265,16 @@ board = esp32dev
 framework = arduino
 ```
 
+MQTT and optional SMTP settings can be configured after flashing from the device web UI. The compiled values in `src/config.h` are only defaults for a fresh device.
+
 Typical build command:
 
 ```powershell
 & "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe" run
+```
+
+The distributable firmware binary is created at:
+
+```text
+.pio/build/esp32/firmware.bin
 ```

@@ -86,7 +86,7 @@ void loop()
   // Low tank hard stop
   if (st.pumpOn && cfg.tankLevelMl <= cfg.minLevelMl)
   {
-    pumpStop(st);
+    pumpStopWithReason(st, "LOW_TANK");
     saveConfig(cfg);
   }
 

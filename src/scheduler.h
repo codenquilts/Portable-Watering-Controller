@@ -14,6 +14,9 @@ struct RuntimeState {
   uint32_t lastStartTs = 0;    // epoch seconds (0 if unknown)
   uint32_t lastStopTs  = 0;    // epoch seconds (0 if still running / unknown)
   uint32_t lastRunS    = 0;    // seconds (0 if unknown)
+  uint32_t pumpStartMs = 0;    // monotonic millis at relay ON
+  uint32_t pumpStopAtMs = 0;   // monotonic millis deadline
+  uint16_t requestedRunS = 0;  // requested relay runtime in seconds
   char     lastReason[16] = "BOOT";
 };
 
@@ -23,6 +26,8 @@ void schedulerLoop(DeviceCfg& cfg, RuntimeState& st);
 // New API (reason logging)
 void pumpStartForMinutes(RuntimeState& st, uint8_t minutes, const char* reason);
 void pumpStop(RuntimeState& st);
+void pumpStopWithReason(RuntimeState& st, const char* reason);
+uint32_t pumpRemainingSeconds(const RuntimeState& st);
 
 // Back-compat wrapper (older call sites)
 inline void pumpStartForMinutes(RuntimeState& st, uint8_t minutes) {

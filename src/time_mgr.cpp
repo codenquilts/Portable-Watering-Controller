@@ -87,6 +87,17 @@ void timeOnWifiConnected() {
   configTzTime("AEST-10AEDT,M10.1.0/2,M4.1.0/3", "pool.ntp.org", "time.nist.gov");
 }
 
+void timeSetTimezone(const char* tz) {
+  if (!tz || !*tz) return;
+  // Update system timezone
+  setenv("TZ", tz, 1);
+  tzset();
+  // If WiFi connected, also update NTP with new timezone
+  if (systemTimeLooksValid()) {
+    configTzTime(tz, "pool.ntp.org", "time.google.com");
+  }
+}
+
 time_t timeNow() {
   if (!g_valid) return 0;
   uint32_t dt = (millis() - g_baseMs) / 1000;

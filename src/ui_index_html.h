@@ -14,6 +14,7 @@
 // POST /api/pump
 // POST /api/runNow
 // POST /api/tankReset
+// POST /api/email/test
 // POST /api/device
 // POST /api/wifi/setup
 // POST /api/wifi/reset
@@ -34,7 +35,7 @@ h2{background:var(--blue);color:#fff;margin:0;padding:1rem;font-size:1.2rem;text
 .card{background:#fff;margin:1rem;padding:1rem;border-radius:.7rem;box-shadow:0 2px 6px rgba(0,0,0,.1);}
 .status{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;font-size:1rem;gap:.4rem;}
 label{display:block;margin-top:.6rem;font-size:.95rem;}
-input[type=text],input[type=number]{
+input[type=text],input[type=number],input[type=password],input[type=email]{
   width:100%;box-sizing:border-box;padding:.45rem;margin-top:.2rem;font-size:1rem;
 }
 input[type=checkbox]{transform:scale(1.4);margin-right:.4rem;}
@@ -163,11 +164,6 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
   <fieldset>
     <legend>Device Settings</legend>
 
-    <div class="note">
-      These settings are saved to device configuration (not WiFiManager).
-      Changing the AP name/password affects the device hotspot used for setup.
-    </div>
-
     <label>Device Name
       <input type="text" id="devName" placeholder="portable1">
     </label>
@@ -180,7 +176,84 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
       <input type="text" id="apPass" autocomplete="off" placeholder="(leave blank to keep current)">
     </label>
 
-    <button class="btn-save" style="width:100%" onclick="saveDevice()">Save Device Settings</button>
+    <hr class="sep">
+
+    <label>Time Zone (POSIX format)
+      <input type="text" id="timeZone" placeholder="AEST-10AEDT,M10.1.0/2,M4.1.0/3">
+    </label>
+
+    <label>Tank Total Capacity (mL)
+      <input type="number" id="tankTotal" min="1000" step="100" placeholder="55000">
+    </label>
+
+    <hr class="sep">
+
+    <label>Notification Email
+      <input type="email" id="notifyEmail" placeholder="you@example.com">
+    </label>
+
+    <label><input type="checkbox" id="notifyLowTank"> Low tank alerts</label>
+    <label><input type="checkbox" id="notifyErrors"> Error alerts</label>
+    <label><input type="checkbox" id="notifyStatus"> Status alerts</label>
+
+    <hr class="sep">
+
+    <div class="row2">
+      <div>
+        <label>MQTT Host
+          <input type="text" id="mqttHost" placeholder="192.168.0.17">
+        </label>
+      </div>
+      <div>
+        <label>MQTT Port
+          <input type="number" id="mqttPort" min="1" max="65535" placeholder="1883">
+        </label>
+      </div>
+    </div>
+
+    <label>MQTT Username
+      <input type="text" id="mqttUser" autocomplete="username">
+    </label>
+
+    <label>MQTT Password
+      <input type="password" id="mqttPass" autocomplete="current-password" placeholder="(leave blank to keep current)">
+    </label>
+    <div class="note" id="mqttPassState"></div>
+
+    <hr class="sep">
+
+    <div class="row2">
+      <div>
+        <label>SMTP Host
+          <input type="text" id="smtpHost" placeholder="smtp.example.com">
+        </label>
+      </div>
+      <div>
+        <label>SMTP Port
+          <input type="number" id="smtpPort" min="1" max="65535" placeholder="587">
+        </label>
+      </div>
+    </div>
+
+    <label>SMTP Username
+      <input type="text" id="smtpUser" autocomplete="username">
+    </label>
+
+    <label>SMTP Password
+      <input type="password" id="smtpPass" autocomplete="current-password" placeholder="(leave blank to keep current)">
+    </label>
+    <div class="note" id="smtpPassState"></div>
+
+    <label>SMTP From Address
+      <input type="email" id="smtpFrom" placeholder="pwb@example.com">
+    </label>
+
+    <label><input type="checkbox" id="smtpSsl"> Use SSL/TLS socket</label>
+
+    <div class="buttons">
+      <button class="btn-save" onclick="saveDevice()">Save</button>
+      <button class="btn-run" onclick="testEmail()">Test Email</button>
+    </div>
   </fieldset>
 </div>
 
@@ -266,6 +339,19 @@ function fmtTs(ts){
   return d.toLocaleString();
 }
 
+// Helper to set input value only if not currently focused
+function setIfNotFocused(elem, value) {
+  if (document.activeElement !== elem) {
+    elem.value = value;
+  }
+}
+
+// Helper to set checkbox only if not currently focused
+function setCheckIfNotFocused(elem, value) {
+  if (document.activeElement !== elem) {
+    elem.checked = value;
+  }
+}
 async function loadAll(){
   try{
     const s=await apiGet("/api/status");
@@ -280,18 +366,38 @@ async function loadAll(){
     const url = ip ? ("http://" + ip + "/") : "";
     netMode.innerHTML = "Network: " + nm + (ip ? (" @ <a class='link' href='"+url+"'>"+ip+"</a>") : "");
 
-    m_start.value=(s.morning?.start_hhmm ?? 630).toString().padStart(4,"0");
-    m_run.value=(s.morning?.run_min ?? 5);
+    setIfNotFocused(m_start, (s.morning?.start_hhmm ?? 630).toString().padStart(4,"0"));
+    setIfNotFocused(m_run, (s.morning?.run_min ?? 5));
     m_enabled.checked=!!(s.morning?.enabled);
     setDays("m", s.morning?.days ?? s.morning?.days_mask ?? 127);
 
-    e_start.value=(s.evening?.start_hhmm ?? 1830).toString().padStart(4,"0");
-    e_run.value=(s.evening?.run_min ?? 5);
-    e_enabled.checked=!!(s.evening?.enabled);
+    setIfNotFocused(e_start, (s.evening?.start_hhmm ?? 1830).toString().padStart(4,"0"));
+    setIfNotFocused(e_run, (s.evening?.run_min ?? 5));
+    setCheckIfNotFocused(e_enabled, !!(s.evening?.enabled));
     setDays("e", s.evening?.days ?? s.evening?.days_mask ?? 127);
 
-    devName.value = (s.device_name || "");
-    apSsid.value  = (s.ap_ssid || "");
+    setIfNotFocused(devName, (s.device_name || ""));
+    setIfNotFocused(apSsid, (s.ap_ssid || ""));
+    setIfNotFocused(timeZone, (s.time_zone || "AEST-10AEDT,M10.1.0/2,M4.1.0/3"));
+    setIfNotFocused(tankTotal, (s.tank_total_ml || 55000));
+    setIfNotFocused(notifyEmail, (s.notify_email || ""));
+    setCheckIfNotFocused(notifyLowTank, !!s.notify_low_tank);
+    setCheckIfNotFocused(notifyErrors, !!s.notify_errors);
+    setCheckIfNotFocused(notifyStatus, !!s.notify_status);
+
+    setIfNotFocused(mqttHost, (s.mqtt_host || ""));
+    setIfNotFocused(mqttPort, (s.mqtt_port || 1883));
+    setIfNotFocused(mqttUser, (s.mqtt_user || ""));
+    mqttPass.value = "";
+    mqttPassState.textContent = s.mqtt_pass_set ? "MQTT password is configured." : "No MQTT password saved.";
+
+    setIfNotFocused(smtpHost, (s.smtp_host || ""));
+    setIfNotFocused(smtpPort, (s.smtp_port || 587));
+    setIfNotFocused(smtpUser, (s.smtp_user || ""));
+    smtpPass.value = "";
+    setIfNotFocused(smtpFrom, (s.smtp_from || ""));
+    setCheckIfNotFocused(smtpSsl, !!s.smtp_ssl);
+    smtpPassState.textContent = s.smtp_pass_set ? "SMTP password is configured." : "No SMTP password saved.";
 
     const on = !!s.pump_on;
     pumpOn.style.opacity  = on ? "1" : ".5";
@@ -304,7 +410,11 @@ async function loadAll(){
     if(start === "—") {
       lastWatering.textContent = "—";
     } else {
-      lastWatering.textContent = start + (runS ? (" - " + runS + "s") : "") + (reason ? (" - " + reason) : "");
+      const remaining = Number(s.pump_remaining_s || 0);
+      const requested = Number(s.pump_requested_s || 0);
+      const active = on && remaining ? (" - " + remaining + "s left") : "";
+      const requestedText = requested ? (" / " + requested + "s requested") : "";
+      lastWatering.textContent = start + (runS ? (" - " + runS + "s" + requestedText) : active) + (reason ? (" - " + reason) : "");
     }
 
   }catch(e){
@@ -376,20 +486,61 @@ async function saveDevice(){
   try{
     const payload = {
       device_name: (devName.value || "").trim(),
-      ap_ssid:     (apSsid.value  || "").trim()
+      ap_ssid:     (apSsid.value  || "").trim(),
+      time_zone: (timeZone.value || "").trim(),
+      tank_total_ml: parseFloat(tankTotal.value || 55000),
+      notify_email: (notifyEmail.value || "").trim(),
+      notify_low_tank: !!notifyLowTank.checked,
+      notify_errors: !!notifyErrors.checked,
+      notify_status: !!notifyStatus.checked,
+      mqtt_host: (mqttHost.value || "").trim(),
+      mqtt_port: parseInt(mqttPort.value || "1883", 10),
+      mqtt_user: (mqttUser.value || "").trim(),
+      smtp_host: (smtpHost.value || "").trim(),
+      smtp_port: parseInt(smtpPort.value || "587", 10),
+      smtp_user: (smtpUser.value || "").trim(),
+      smtp_from: (smtpFrom.value || "").trim(),
+      smtp_ssl: !!smtpSsl.checked
     };
 
-    // Only send ap_pass if user typed one
+    // Only send passwords if user typed one
     const ap = (apPass.value || "");
     if(ap.length > 0) payload.ap_pass = ap;
+    const mp = (mqttPass.value || "");
+    if(mp.length > 0) payload.mqtt_pass = mp;
+    const sp = (smtpPass.value || "");
+    if(sp.length > 0) payload.smtp_pass = sp;
 
     await apiPost("/api/device", payload);
-    apPass.value = ""; // clear after save
+    apPass.value = "";
+    mqttPass.value = "";
+    smtpPass.value = "";
     showToast("Device settings saved");
     loadAll();
+    return true;
   }catch(e){
     console.error(e);
     showToast("Device save failed");
+    return false;
+  }
+}
+
+function emailTestMessage(err){
+  if(err === "missing_notify_email") return "Enter notification email first";
+  if(err === "missing_smtp_host") return "Enter SMTP host first";
+  return "Email test failed";
+}
+
+async function testEmail(){
+  try{
+    if(!(await saveDevice())) return;
+    showToast("Sending test email...");
+    const r = await apiPost("/api/email/test", {});
+    if(r && r.ok) showToast("Test email sent");
+    else showToast(emailTestMessage(r && r.err));
+  }catch(e){
+    console.error(e);
+    showToast("Email test failed");
   }
 }
 
@@ -429,3 +580,10 @@ window.onload = () => { loadAll(); };
 </body>
 </html>
 )HTML";
+
+
+
+
+
+
+

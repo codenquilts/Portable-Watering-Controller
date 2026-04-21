@@ -20,4 +20,5 @@ time_t timeNow();                 // stable time for the app (soft clock)
 String timeNowStringHM();         // "HH:MM"
 String timeNowStringHMS();        // "HH:MM:SS"
 String timeFormatLocal(time_t epoch, const char* fmt = "%Y-%m-%d %H:%M:%S");
+void timeSetTimezone(const char* tz); // set timezone and apply to NTP if connected
 const char* timeSourceStr();      // "none" | "stored" | "ntp"

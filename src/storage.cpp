@@ -25,6 +25,18 @@ bool loadConfig(DeviceCfg& cfg) {
   cfg.notifyErrors   = prefs.getBool("notifyErr", cfg.notifyErrors);
   cfg.notifyStatus   = prefs.getBool("notifyStat", cfg.notifyStatus);
 
+  cfg.mqttHost = getStringSafe("mqttHost", cfg.mqttHost);
+  cfg.mqttPort = prefs.getUShort("mqttPort", cfg.mqttPort);
+  cfg.mqttUser = getStringSafe("mqttUser", cfg.mqttUser);
+  cfg.mqttPass = getStringSafe("mqttPass", cfg.mqttPass);
+
+  cfg.smtpHost = getStringSafe("smtpHost", cfg.smtpHost);
+  cfg.smtpPort = prefs.getUShort("smtpPort", cfg.smtpPort);
+  cfg.smtpUser = getStringSafe("smtpUser", cfg.smtpUser);
+  cfg.smtpPass = getStringSafe("smtpPass", cfg.smtpPass);
+  cfg.smtpFrom = getStringSafe("smtpFrom", cfg.smtpFrom);
+  cfg.smtpUseSsl = prefs.getBool("smtpSsl", cfg.smtpUseSsl);
+
   cfg.morning.startHHMM = prefs.getUShort("mStart", cfg.morning.startHHMM);
   cfg.morning.runMin    = prefs.getUChar("mRun",   cfg.morning.runMin);
   cfg.morning.enabled   = prefs.getBool("mEn",     cfg.morning.enabled);
@@ -40,6 +52,7 @@ bool loadConfig(DeviceCfg& cfg) {
   cfg.flowMlPerSec  = prefs.getFloat("flow",    cfg.flowMlPerSec);
   cfg.minLevelMl    = prefs.getFloat("minLvl",  cfg.minLevelMl);
   cfg.resetLevelMl  = prefs.getFloat("rstLvl",  cfg.resetLevelMl);
+  cfg.timeZone      = getStringSafe("timeZone", cfg.timeZone);
 
   prefs.end();
   return true;
@@ -60,6 +73,18 @@ bool saveConfig(const DeviceCfg& cfg) {
   prefs.putBool("notifyErr", cfg.notifyErrors);
   prefs.putBool("notifyStat", cfg.notifyStatus);
 
+  putStringSafe("mqttHost", cfg.mqttHost);
+  prefs.putUShort("mqttPort", cfg.mqttPort);
+  putStringSafe("mqttUser", cfg.mqttUser);
+  putStringSafe("mqttPass", cfg.mqttPass);
+
+  putStringSafe("smtpHost", cfg.smtpHost);
+  prefs.putUShort("smtpPort", cfg.smtpPort);
+  putStringSafe("smtpUser", cfg.smtpUser);
+  putStringSafe("smtpPass", cfg.smtpPass);
+  putStringSafe("smtpFrom", cfg.smtpFrom);
+  prefs.putBool("smtpSsl", cfg.smtpUseSsl);
+
   prefs.putUShort("mStart", cfg.morning.startHHMM);
   prefs.putUChar ("mRun",   cfg.morning.runMin);
   prefs.putBool  ("mEn",    cfg.morning.enabled);
@@ -75,6 +100,7 @@ bool saveConfig(const DeviceCfg& cfg) {
   prefs.putFloat("flow",    cfg.flowMlPerSec);
   prefs.putFloat("minLvl",  cfg.minLevelMl);
   prefs.putFloat("rstLvl",  cfg.resetLevelMl);
+  putStringSafe("timeZone", cfg.timeZone);
 
   prefs.end();
   return true;
@@ -84,3 +110,6 @@ void resetDailyTriggers(DeviceCfg& cfg) {
   cfg.morning.triggered = false;
   cfg.evening.triggered = false;
 }
+
+
+

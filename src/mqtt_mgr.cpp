@@ -27,6 +27,8 @@ static PubSubClient g_mqtt(g_net);
 static String g_devId;
 static String g_base;     // "pwb/<devId>"
 static String g_lwtTopic; // ".../state/online"
+static String g_mqttHost;
+static uint16_t g_mqttPort = 1883;
 
 static uint32_t g_lastConnAttempt = 0;
 static uint32_t g_lastSlowPub = 0;
@@ -188,21 +190,21 @@ static bool smtpSendCommand(WiFiClient& client, const String& cmd, int expectedC
   return smtpReadResponse(client, expectedCode);
 }
 
-static bool smtpSendEmail(const String& to, const String& subject, const String& body) {
-  if (to.isEmpty() || strlen(SMTP_HOST) == 0) return false;
+static bool smtpSendEmail(const DeviceCfg& cfg, const String& to, const String& subject, const String& body) {
+  if (to.isEmpty() || cfg.smtpHost.isEmpty()) return false;
 
   static WiFiClientSecure secureClient;
   static WiFiClient plainClient;
   WiFiClient* client;
 
-#if SMTP_USE_SSL
-  secureClient.setInsecure();
-  client = &secureClient;
-#else
-  client = &plainClient;
-#endif
+  if (cfg.smtpUseSsl) {
+    secureClient.setInsecure();
+    client = &secureClient;
+  } else {
+    client = &plainClient;
+  }
 
-  if (!client->connect(SMTP_HOST, SMTP_PORT)) return false;
+  if (!client->connect(cfg.smtpHost.c_str(), cfg.smtpPort)) return false;
   if (!smtpReadResponse(*client, 220)) {
     client->stop();
     return false;
@@ -216,22 +218,24 @@ static bool smtpSendEmail(const String& to, const String& subject, const String&
     return false;
   }
 
-  if (strlen(SMTP_USER) > 0) {
+  if (!cfg.smtpUser.isEmpty()) {
     if (!smtpSendCommand(*client, "AUTH LOGIN", 334)) {
       client->stop();
       return false;
     }
-    if (!smtpSendCommand(*client, base64Encode(String(SMTP_USER)), 334)) {
+    if (!smtpSendCommand(*client, base64Encode(cfg.smtpUser), 334)) {
       client->stop();
       return false;
     }
-    if (!smtpSendCommand(*client, base64Encode(String(SMTP_PASS)), 235)) {
+    if (!smtpSendCommand(*client, base64Encode(cfg.smtpPass), 235)) {
       client->stop();
       return false;
     }
   }
 
-  if (!smtpSendCommand(*client, String("MAIL FROM:<") + SMTP_FROM + ">", 250)) {
+  const String from = cfg.smtpFrom.isEmpty() ? String("pwb@example.com") : cfg.smtpFrom;
+
+  if (!smtpSendCommand(*client, String("MAIL FROM:<") + from + ">", 250)) {
     client->stop();
     return false;
   }
@@ -245,7 +249,7 @@ static bool smtpSendEmail(const String& to, const String& subject, const String&
   }
 
   client->print("From: ");
-  client->print(SMTP_FROM);
+  client->print(from);
   client->print("\r\n");
   client->print("To: ");
   client->print(to);
@@ -276,7 +280,22 @@ static bool shouldEmailError(const char* type) {
 
 static bool sendEmailNotification(const DeviceCfg& cfg, const String& subject, const String& body) {
   if (cfg.notifyEmail.isEmpty()) return false;
-  return smtpSendEmail(cfg.notifyEmail, subject, body);
+  return smtpSendEmail(cfg, cfg.notifyEmail, subject, body);
+}
+
+bool mqttSendTestEmail(const DeviceCfg& cfg) {
+  if (cfg.notifyEmail.isEmpty() || cfg.smtpHost.isEmpty()) return false;
+
+  String subject = String(APP_NAME) + " test email";
+  String body = "Device: " + cfg.deviceName + "\n";
+  body += "This is a test email from ";
+  body += APP_NAME;
+  body += ".\n";
+  body += "Time: ";
+  body += timeNowStringHM();
+  body += "\n";
+
+  return smtpSendEmail(cfg, cfg.notifyEmail, subject, body);
 }
 
 static void notifyErrorEmail(const DeviceCfg& cfg, const char* type, const char* msg) {
@@ -626,14 +645,8 @@ static uint32_t epochNow() {
 
 static uint32_t pumpElapsedS(const RuntimeState& st) {
   if (!st.pumpOn) return 0;
-  if (!st.lastStartTs) return 0;
-
-  // Prefer our soft/NTP-managed time
-  if (!timeIsValid()) return 0;
-
-  uint32_t now = (uint32_t)timeNow();
-  if (now < st.lastStartTs) return 0;
-  return now - st.lastStartTs;
+  if (st.pumpStartMs == 0) return 0;
+  return (millis() - st.pumpStartMs) / 1000UL;
 }
 
 static void formatDaysMask(uint8_t mask, char* out, size_t outSize) {
@@ -773,6 +786,19 @@ static bool updateScheduleField(const char* name, ScheduleCfg& sched, const Stri
   return false;
 }
 
+static void applyMqttConfig(const DeviceCfg& cfg) {
+  g_mqttHost = cfg.mqttHost;
+  g_mqttHost.trim();
+  g_mqttPort = cfg.mqttPort ? cfg.mqttPort : 1883;
+  g_mqtt.setServer(g_mqttHost.c_str(), g_mqttPort);
+}
+
+static void applyMqttIdentity(const DeviceCfg& cfg) {
+  g_devId = sanitizeId(cfg.deviceName);
+  g_base = "watering/" + g_devId;
+  g_lwtTopic = topic("state/online");
+}
+
 static bool handleScheduleCmd(const String& tpc, const String& payload, DeviceCfg& cfg) {
   static const char* kNames[2] = {"morning", "evening"};
   ScheduleCfg* schedules[2] = {&cfg.morning, &cfg.evening};
@@ -878,11 +904,7 @@ static void handleCmd(const String &tpc, const String &payload, RuntimeState &st
 
     if (p == "OFF")
     {
-      // Mark reason before stopping
-      strncpy(st.lastReason, "MQTT_PUMP_OFF", sizeof(st.lastReason) - 1);
-      st.lastReason[sizeof(st.lastReason) - 1] = 0;
-
-      pumpStop(st);
+      pumpStopWithReason(st, "MQTT_PUMP_OFF");
       pubEvent("cmd_pump_off");
       return;
     }
@@ -952,9 +974,7 @@ static void handleCmd(const String &tpc, const String &payload, RuntimeState &st
     {
       if (doStop || p == "STOP" || p == "EMERGENCY")
       {
-        strncpy(st.lastReason, "MQTT_STOP", sizeof(st.lastReason) - 1);
-        st.lastReason[sizeof(st.lastReason) - 1] = 0;
-        pumpStop(st);
+        pumpStopWithReason(st, "MQTT_STOP");
         pubEvent((p == "EMERGENCY") ? "cmd_emergency_stop" : "cmd_stop");
       }
       return;
@@ -995,19 +1015,18 @@ static void onMqttMessage(char *tpc, byte *payload, unsigned int length)
 // -------------------- Connect --------------------
 void mqttBegin(const DeviceCfg &cfg)
 {
-  g_devId = sanitizeId(cfg.deviceName);
-  g_base = "watering/" + g_devId;
-  g_lwtTopic = topic("state/online");
-
-  g_mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  applyMqttIdentity(cfg);
+  applyMqttConfig(cfg);
   g_mqtt.setCallback(onMqttMessage);
   g_mqtt.setKeepAlive(30);
   g_mqtt.setSocketTimeout(2);
 }
 
-static bool mqttConnect()
+static bool mqttConnect(const DeviceCfg& cfg)
 {
   if (wifiGetState() != WifiModeState::STA_CONNECTED)
+    return false;
+  if (g_mqttHost.isEmpty())
     return false;
 
   // Unique client ID per device
@@ -1019,9 +1038,9 @@ static bool mqttConnect()
 
   // LWT retained: online=0
   bool ok;
-  if (strlen(MQTT_USER) > 0)
+  if (!cfg.mqttUser.isEmpty())
   {
-    ok = g_mqtt.connect(cid, MQTT_USER, MQTT_PASS, g_lwtTopic.c_str(), 0, true, "0");
+    ok = g_mqtt.connect(cid, cfg.mqttUser.c_str(), cfg.mqttPass.c_str(), g_lwtTopic.c_str(), 0, true, "0");
   }
   else
   {
@@ -1148,9 +1167,9 @@ static void publishSlow(const DeviceCfg &cfg, RuntimeState &st, SensorsState &ss
 
   // Pump state + RAM log fields
   pubInt(topic("state/pump_on"), st.pumpOn ? 1 : 0, true);
-
-  // Replace "remaining" with elapsed + last run info (works without knowing stop timer)
   pubUInt(topic("state/pump_elapsed_s"), pumpElapsedS(st), true);
+  pubUInt(topic("state/pump_remaining_s"), pumpRemainingSeconds(st), true);
+  pubUInt(topic("state/pump_requested_s"), st.requestedRunS, true);
 
   pubUInt(topic("state/last_start_ts"), st.lastStartTs, true);
   pubUInt(topic("state/last_stop_ts"), st.lastStopTs, true);
@@ -1165,6 +1184,8 @@ static void publishFast(const DeviceCfg &cfg, RuntimeState &st, SensorsState &ss
 
   // elapsed seconds since start
   pubUInt(topic("state/pump_elapsed_s"), pumpElapsedS(st), true);
+  pubUInt(topic("state/pump_remaining_s"), pumpRemainingSeconds(st), true);
+  pubUInt(topic("state/pump_requested_s"), st.requestedRunS, true);
 
   pubFloat(topic("state/tank_ml"), cfg.tankLevelMl, 0, true);
   pubFloat(topic("state/voltage_v"), ss.voltageV, 2, true);
@@ -1177,12 +1198,31 @@ void mqttTick(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
   if (wifiGetState() != WifiModeState::STA_CONNECTED)
     return;
 
+  const String configuredDevId = sanitizeId(cfg.deviceName);
+  if (configuredDevId != g_devId) {
+    if (g_mqtt.connected()) g_mqtt.disconnect();
+    applyMqttIdentity(cfg);
+  }
+
+  String configuredHost = cfg.mqttHost;
+  configuredHost.trim();
+  const uint16_t configuredPort = cfg.mqttPort ? cfg.mqttPort : 1883;
+  if (configuredHost != g_mqttHost || configuredPort != g_mqttPort) {
+    if (g_mqtt.connected()) g_mqtt.disconnect();
+    applyMqttConfig(cfg);
+  }
+
+  if (g_mqttHost.isEmpty()) {
+    if (g_mqtt.connected()) g_mqtt.disconnect();
+    return;
+  }
+
   if (!g_mqtt.connected())
   {
     if (millis() - g_lastConnAttempt >= RECON_MS)
     {
       g_lastConnAttempt = millis();
-      mqttConnect();
+      mqttConnect(cfg);
     }
     return;
   }

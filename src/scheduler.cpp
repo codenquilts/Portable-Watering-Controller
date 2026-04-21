@@ -9,9 +9,6 @@
 #include <Arduino.h>
 #include <time.h>
 
-// Stop timer (ms) for safety shutoff
-static uint32_t g_pumpStopAtMs = 0;
-
 // ---------- helpers ----------
 static void ledSetForNetwork() {
   ledSetMode(wifiGetState() == WifiModeState::STA_CONNECTED
@@ -46,8 +43,6 @@ static void setReason(RuntimeState& st, const char* reason) {
 
 // ---------- lifecycle ----------
 void schedulerBegin() {
-  g_pumpStopAtMs = 0;
-
   pinMode(PIN_RELAY, OUTPUT);
   digitalWrite(PIN_RELAY, RELAY_OFF_LEVEL);
 }
@@ -63,13 +58,24 @@ void pumpStartForMinutes(RuntimeState& st, uint8_t minutes, const char* reason) 
   ledSetMode(LedMode::SOLID_ON);
 
   if (minutes == 0) minutes = 1;
-  g_pumpStopAtMs = millis() + (uint32_t)minutes * 60UL * 1000UL;
+  if (minutes > RUN_MAX_MINUTES) minutes = RUN_MAX_MINUTES;
+
+  const uint32_t nowMs = millis();
+  const uint32_t runMs = (uint32_t)minutes * 60UL * 1000UL;
+  st.pumpStartMs = nowMs;
+  st.pumpStopAtMs = nowMs + runMs;
+  st.requestedRunS = (uint16_t)minutes * 60U;
 
   // ----- RAM log -----
   setReason(st, reason);
   st.lastStartTs = timeIsValid() ? (uint32_t)timeNow() : 0;
   st.lastStopTs  = 0;
   st.lastRunS    = 0;
+
+  Serial.printf("PUMP START: reason=%s requested=%us stop_in_ms=%lu\n",
+                st.lastReason,
+                (unsigned)st.requestedRunS,
+                (unsigned long)runMs);
 }
 
 void pumpStop(RuntimeState& st) {
@@ -77,18 +83,42 @@ void pumpStop(RuntimeState& st) {
 
   digitalWrite(PIN_RELAY, RELAY_OFF_LEVEL);
   st.pumpOn = false;
-  g_pumpStopAtMs = 0;
 
   // LED: back to network indication
   ledSetForNetwork();
 
   // ----- RAM log -----
+  const uint32_t stopMs = millis();
   uint32_t stopTs = timeIsValid() ? (uint32_t)timeNow() : 0;
   st.lastStopTs = stopTs;
 
-  if (st.lastStartTs && stopTs && stopTs >= st.lastStartTs) {
+  if (st.pumpStartMs != 0) {
+    st.lastRunS = (stopMs - st.pumpStartMs + 500UL) / 1000UL;
+  } else if (st.lastStartTs && stopTs && stopTs >= st.lastStartTs) {
     st.lastRunS = stopTs - st.lastStartTs;
   }
+
+  Serial.printf("PUMP STOP: reason=%s actual=%lus requested=%us remaining=%lus\n",
+                st.lastReason,
+                (unsigned long)st.lastRunS,
+                (unsigned)st.requestedRunS,
+                (unsigned long)pumpRemainingSeconds(st));
+
+  st.pumpStartMs = 0;
+  st.pumpStopAtMs = 0;
+  st.requestedRunS = 0;
+}
+
+void pumpStopWithReason(RuntimeState& st, const char* reason) {
+  setReason(st, reason);
+  pumpStop(st);
+}
+
+uint32_t pumpRemainingSeconds(const RuntimeState& st) {
+  if (!st.pumpOn || st.pumpStopAtMs == 0) return 0;
+  const int32_t remainingMs = (int32_t)(st.pumpStopAtMs - millis());
+  if (remainingMs <= 0) return 0;
+  return ((uint32_t)remainingMs + 999UL) / 1000UL;
 }
 
 // ---------- schedule start ----------
@@ -130,8 +160,8 @@ static void tryStartSchedule(DeviceCfg& cfg, RuntimeState& st, const struct tm& 
 // ---------- main loop ----------
 void schedulerLoop(DeviceCfg& cfg, RuntimeState& st) {
   // Auto stop pump
-  if (st.pumpOn && g_pumpStopAtMs != 0) {
-    if ((int32_t)(millis() - g_pumpStopAtMs) >= 0) {
+  if (st.pumpOn && st.pumpStopAtMs != 0) {
+    if ((int32_t)(millis() - st.pumpStopAtMs) >= 0) {
       // mark why it stopped (only if it wasn't already a known type)
       if (strncmp(st.lastReason, "MORNING", 7) != 0 &&
           strncmp(st.lastReason, "EVENING", 7) != 0 &&

@@ -7,3 +7,4 @@
 void mqttBegin(const DeviceCfg& cfg);
 void mqttTick(DeviceCfg& cfg, RuntimeState& st, SensorsState& ss);
 bool mqttConnected();
+bool mqttSendTestEmail(const DeviceCfg& cfg);

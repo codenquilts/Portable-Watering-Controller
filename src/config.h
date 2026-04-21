@@ -68,6 +68,10 @@ static const char *DEFAULT_AP_PASS = "water1234"; // change later
 #endif
 
 // ---------------- Email notifications ----------------
+#ifdef HAS_BUILD_CONFIG
+#include "build_config.h"
+#endif
+
 #ifndef SMTP_HOST
 #define SMTP_HOST ""
 #endif

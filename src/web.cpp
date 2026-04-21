@@ -9,6 +9,7 @@
 #include "wifi_mgr.h"
 #include "ui_index_html.h"
 #include "storage.h"
+#include "mqtt_mgr.h"
 
 #include <WiFi.h>
 #include <DNSServer.h>
@@ -94,7 +95,7 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
   // ----------------------------
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *req)
             {
-  StaticJsonDocument<2048> doc;
+  StaticJsonDocument<3072> doc;
 
   
 
@@ -121,11 +122,25 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
   doc["voltage_v"]   = g_ss->voltageV;
   doc["tank_ml"]     = g_cfg->tankLevelMl;
   doc["usage_ml"]    = g_cfg->usageMl;
+  doc["tank_total_ml"] = g_cfg->resetLevelMl;
+  doc["time_zone"] = g_cfg->timeZone;
   doc["notify_email"] = g_cfg->notifyEmail;
   doc["notify_low_tank"] = g_cfg->notifyLowTank;
   doc["notify_errors"] = g_cfg->notifyErrors;
   doc["notify_status"] = g_cfg->notifyStatus;
+  doc["mqtt_host"] = g_cfg->mqttHost;
+  doc["mqtt_port"] = g_cfg->mqttPort;
+  doc["mqtt_user"] = g_cfg->mqttUser;
+  doc["mqtt_pass_set"] = !g_cfg->mqttPass.isEmpty();
+  doc["smtp_host"] = g_cfg->smtpHost;
+  doc["smtp_port"] = g_cfg->smtpPort;
+  doc["smtp_user"] = g_cfg->smtpUser;
+  doc["smtp_from"] = g_cfg->smtpFrom;
+  doc["smtp_ssl"] = g_cfg->smtpUseSsl;
+  doc["smtp_pass_set"] = !g_cfg->smtpPass.isEmpty();
   doc["pump_on"]     = g_st->pumpOn;
+  doc["pump_remaining_s"] = pumpRemainingSeconds(*g_st);
+  doc["pump_requested_s"] = g_st->requestedRunS;
   doc["boot_ready"]  = g_st->bootReady;
   doc["time_hhmm"]   = hhmmString();
 
@@ -235,25 +250,10 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
       int state = in["state"] | 0;
 
       if (state) {
-        strncpy(g_st->lastReason, "MANUAL_UI", sizeof(g_st->lastReason)-1);
-        g_st->lastReason[sizeof(g_st->lastReason)-1] = 0;
-
-        if (timeIsValid()) {
-         g_st->lastStartTs = timeNow();
-         }
-        g_st->lastStopTs = 0;
-        g_st->lastRunS   = 0;
-
         // manual ON: enforce max runtime as safety
-        pumpStartForMinutes(*g_st, RUN_MAX_MINUTES, "MANUAL_UI");pumpStartForMinutes(*g_st, RUN_MAX_MINUTES, "MANUAL_UI");
+        pumpStartForMinutes(*g_st, RUN_MAX_MINUTES, "MANUAL_UI");
       } else {
-        if (timeIsValid()) {
-        g_st->lastStopTs = timeNow();
-        if (g_st->lastStartTs > 0 && g_st->lastStopTs > g_st->lastStartTs) {
-       g_st->lastRunS = (uint32_t)(g_st->lastStopTs - g_st->lastStartTs);
-  }
-}
-        pumpStop(*g_st);
+        pumpStopWithReason(*g_st, "MANUAL_OFF");
       }
 
       out["ok"] = true;
@@ -314,6 +314,33 @@ else                    pumpStartForMinutes(*g_st, g_cfg->evening.runMin, "MANUA
       sendJson(req, out); });
 
   // ----------------------------
+  // Email test
+  // ----------------------------
+  server.on("/api/email/test", HTTP_POST, [](AsyncWebServerRequest *req) {}, nullptr, [](AsyncWebServerRequest *req, uint8_t *, size_t, size_t, size_t)
+            {
+
+      StaticJsonDocument<192> out;
+
+      if (g_cfg->notifyEmail.isEmpty()) {
+        out["ok"] = false;
+        out["err"] = "missing_notify_email";
+        sendJson(req, out);
+        return;
+      }
+
+      if (g_cfg->smtpHost.isEmpty()) {
+        out["ok"] = false;
+        out["err"] = "missing_smtp_host";
+        sendJson(req, out);
+        return;
+      }
+
+      const bool ok = mqttSendTestEmail(*g_cfg);
+      out["ok"] = ok;
+      if (!ok) out["err"] = "send_failed";
+      sendJson(req, out); });
+
+  // ----------------------------
   // WiFiManager controls
   // ----------------------------
   server.on("/api/wifi/setup", HTTP_POST, [](AsyncWebServerRequest *req) {}, nullptr, [](AsyncWebServerRequest *req, uint8_t *, size_t, size_t, size_t)
@@ -355,20 +382,51 @@ else                    pumpStartForMinutes(*g_st, g_cfg->evening.runMin, "MANUA
         return;
       }
 
-      auto setIfNonEmpty = [](String& target, JsonVariant v){
-        if (!v.is<const char*>()) return;
+      auto setStringIfPresent = [](String& target, JsonVariant v, bool allowEmpty){
+        if (v.isNull() || !v.is<const char*>()) return;
         const char* s = v.as<const char*>();
-        if (s && *s) target = String(s);
+        if (!s) return;
+        if (allowEmpty || *s) target = String(s);
       };
 
-      setIfNonEmpty(g_cfg->deviceName, in["device_name"]);
-      setIfNonEmpty(g_cfg->apSsid,     in["ap_ssid"]);
-      setIfNonEmpty(g_cfg->apPass,     in["ap_pass"]);
-      setIfNonEmpty(g_cfg->notifyEmail, in["notify_email"]);
+      setStringIfPresent(g_cfg->deviceName, in["device_name"], false);
+      setStringIfPresent(g_cfg->apSsid,     in["ap_ssid"], false);
+      setStringIfPresent(g_cfg->apPass,     in["ap_pass"], false);
+      setStringIfPresent(g_cfg->notifyEmail, in["notify_email"], true);
+      setStringIfPresent(g_cfg->mqttHost, in["mqtt_host"], true);
+      setStringIfPresent(g_cfg->mqttUser, in["mqtt_user"], true);
+      setStringIfPresent(g_cfg->mqttPass, in["mqtt_pass"], true);
+      setStringIfPresent(g_cfg->smtpHost, in["smtp_host"], true);
+      setStringIfPresent(g_cfg->smtpUser, in["smtp_user"], true);
+      setStringIfPresent(g_cfg->smtpPass, in["smtp_pass"], true);
+      setStringIfPresent(g_cfg->smtpFrom, in["smtp_from"], true);
 
       if (in.containsKey("notify_low_tank")) g_cfg->notifyLowTank = in["notify_low_tank"];
       if (in.containsKey("notify_errors"))  g_cfg->notifyErrors  = in["notify_errors"];
       if (in.containsKey("notify_status"))  g_cfg->notifyStatus  = in["notify_status"];
+      if (in.containsKey("smtp_ssl")) g_cfg->smtpUseSsl = in["smtp_ssl"];
+
+      uint16_t mqttPort = in["mqtt_port"] | g_cfg->mqttPort;
+      uint16_t smtpPort = in["smtp_port"] | g_cfg->smtpPort;
+      if (mqttPort > 0) g_cfg->mqttPort = mqttPort;
+      if (smtpPort > 0) g_cfg->smtpPort = smtpPort;
+
+      // Timezone
+      if (in.containsKey("time_zone")) {
+        const char* tz = in["time_zone"];
+        if (tz && *tz) {
+          g_cfg->timeZone = String(tz);
+          timeSetTimezone(tz);
+        }
+      }
+
+      // Tank total (reset level)
+      if (in.containsKey("tank_total_ml")) {
+        float val = in["tank_total_ml"];
+        if (val > 0) {
+          g_cfg->resetLevelMl = val;
+        }
+      }
 
       saveConfig(*g_cfg);
 
@@ -389,3 +447,6 @@ void webLoop()
     dns.processNextRequest();
   }
 }
+
+
+
