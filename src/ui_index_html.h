@@ -261,6 +261,28 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
   <fieldset>
     <legend>Wi-Fi Setup</legend>
 
+    <div id="wifiConfig" style="display:none">
+      <div class="note">
+        <b>Built-in Wi-Fi Manager:</b> Scan for networks and connect directly.
+      </div>
+
+      <button class="btn-run" onclick="scanWifi()">Scan Wi-Fi Networks</button>
+
+      <div id="scanResults" style="margin-top:.6rem"></div>
+
+      <label>SSID
+        <input type="text" id="wifiSsid">
+      </label>
+
+      <label>Password
+        <input type="password" id="wifiPass">
+      </label>
+
+      <button class="btn-save" onclick="connectWifi()">Connect</button>
+
+      <hr class="sep">
+    </div>
+
     <div class="note">
       <b>Start Wi-Fi Setup</b> reboots into WiFiManager portal mode.
       Then connect to the device hotspot and open <span class="kbd">http://192.168.4.1/</span>.
@@ -587,3 +609,44 @@ window.onload = () => { loadAll(); };
 
 
 
+a s y n c   f u n c t i o n   s c a n W i f i ( )   { 
+     t r y   { 
+         c o n s t   r   =   a w a i t   f e t c h ( " / a p i / w i f i / s c a n " ) ; 
+         c o n s t   d a t a   =   a w a i t   r . j s o n ( ) ; 
+         c o n s t   r e s u l t s   =   d o c u m e n t . g e t E l e m e n t B y I d ( " s c a n R e s u l t s " ) ; 
+         r e s u l t s . i n n e r H T M L   =   " " ; 
+         d a t a . n e t w o r k s . f o r E a c h ( s s i d   = >   { 
+             c o n s t   b t n   =   d o c u m e n t . c r e a t e E l e m e n t ( " b u t t o n " ) ; 
+             b t n . c l a s s N a m e   =   " b t n - r u n " ; 
+             b t n . t e x t C o n t e n t   =   s s i d ; 
+             b t n . o n c l i c k   =   ( )   = >   {   d o c u m e n t . g e t E l e m e n t B y I d ( " w i f i S s i d " ) . v a l u e   =   s s i d ;   } ; 
+             r e s u l t s . a p p e n d C h i l d ( b t n ) ; 
+         } ) ; 
+     }   c a t c h ( e )   { 
+         c o n s o l e . e r r o r ( e ) ; 
+         s h o w T o a s t ( " S c a n   f a i l e d " ) ; 
+     } 
+ } 
+ 
+ a s y n c   f u n c t i o n   c o n n e c t W i f i ( )   { 
+     c o n s t   s s i d   =   d o c u m e n t . g e t E l e m e n t B y I d ( " w i f i S s i d " ) . v a l u e . t r i m ( ) ; 
+     c o n s t   p a s s   =   d o c u m e n t . g e t E l e m e n t B y I d ( " w i f i P a s s " ) . v a l u e ; 
+     i f   ( ! s s i d )   { 
+         s h o w T o a s t ( " E n t e r   S S I D " ) ; 
+         r e t u r n ; 
+     } 
+     s h o w T o a s t ( " C o n n e c t i n g . . . " ) ; 
+     t r y   { 
+         c o n s t   r   =   a w a i t   a p i P o s t ( " / a p i / w i f i / c o n n e c t " ,   { s s i d ,   p a s s } ) ; 
+         i f   ( r . o k )   { 
+             s h o w T o a s t ( " C o n n e c t e d !   I P :   "   +   r . i p ) ; 
+             s e t T i m e o u t ( l o a d A l l ,   1 0 0 0 ) ; 
+         }   e l s e   { 
+             s h o w T o a s t ( " C o n n e c t   f a i l e d " ) ; 
+         } 
+     }   c a t c h ( e )   { 
+         s h o w T o a s t ( " C o n n e c t   f a i l e d " ) ; 
+     } 
+ } 
+ 
+ 
