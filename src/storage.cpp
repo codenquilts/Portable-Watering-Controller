@@ -3,6 +3,9 @@
 
 static Preferences prefs;
 
+static constexpr float OLD_DEFAULT_FLOW_ML_PER_SEC = 7.5f;
+static constexpr float DEFAULT_FLOW_ML_PER_SEC = 70.0f;
+
 static void putStringSafe(const char* key, const String& v) {
   prefs.putString(key, v);
 }
@@ -50,6 +53,10 @@ bool loadConfig(DeviceCfg& cfg) {
   cfg.tankLevelMl   = prefs.getFloat("tankLvl", cfg.tankLevelMl);
   cfg.usageMl       = prefs.getFloat("usage",   cfg.usageMl);
   cfg.flowMlPerSec  = prefs.getFloat("flow",    cfg.flowMlPerSec);
+  if (cfg.flowMlPerSec == OLD_DEFAULT_FLOW_ML_PER_SEC) {
+    cfg.flowMlPerSec = DEFAULT_FLOW_ML_PER_SEC;
+  }
+  cfg.returnFlowMlPerSec = prefs.getFloat("retFlow", cfg.returnFlowMlPerSec);
   cfg.minLevelMl    = prefs.getFloat("minLvl",  cfg.minLevelMl);
   cfg.resetLevelMl  = prefs.getFloat("rstLvl",  cfg.resetLevelMl);
   cfg.timeZone      = getStringSafe("timeZone", cfg.timeZone);
@@ -98,6 +105,7 @@ bool saveConfig(const DeviceCfg& cfg) {
   prefs.putFloat("tankLvl", cfg.tankLevelMl);
   prefs.putFloat("usage",   cfg.usageMl);
   prefs.putFloat("flow",    cfg.flowMlPerSec);
+  prefs.putFloat("retFlow", cfg.returnFlowMlPerSec);
   prefs.putFloat("minLvl",  cfg.minLevelMl);
   prefs.putFloat("rstLvl",  cfg.resetLevelMl);
   putStringSafe("timeZone", cfg.timeZone);

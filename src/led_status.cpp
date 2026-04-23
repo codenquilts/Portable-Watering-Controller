@@ -10,6 +10,10 @@ static bool g_on = false;
 // Pattern state
 static uint8_t g_step = 0;
 
+#if defined(ESP32)
+static TaskHandle_t g_ledTask = nullptr;
+#endif
+
 static void writeLed(bool on)
 {
   g_on = on;
@@ -19,40 +23,7 @@ static void writeLed(bool on)
   digitalWrite(g_pin, (g_activeLow ? (on ? LOW : HIGH) : (on ? HIGH : LOW)));
 }
 
-void ledBegin(uint8_t pin, bool activeLow)
-{
-  g_pin = pin;
-  g_activeLow = activeLow;
-  pinMode(g_pin, OUTPUT);
-  writeLed(false);
-  g_tNext = millis();
-  g_step = 0;
-  g_mode = LedMode::OFF;
-}
-
-void ledSetMode(LedMode mode)
-{
-  if (mode == g_mode)
-    return;
-  g_mode = mode;
-  g_step = 0;
-  g_tNext = millis();
-  // set immediate output for simple modes
-  if (g_mode == LedMode::OFF)
-    writeLed(false);
-  if (g_mode == LedMode::SOLID_ON)
-    writeLed(true);
-}
-
-LedMode ledGetMode() { return g_mode; }
-
-void ledSetError(bool isError)
-{
-  if (isError)
-    ledSetMode(LedMode::ERROR_TRIPLE);
-}
-
-void ledTick()
+static void serviceLed()
 {
   if (g_pin == 255)
     return;
@@ -162,4 +133,60 @@ void ledTick()
   default:
     break;
   }
+}
+
+#if defined(ESP32)
+static void ledTask(void *)
+{
+  for (;;)
+  {
+    serviceLed();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+#endif
+
+void ledBegin(uint8_t pin, bool activeLow)
+{
+  g_pin = pin;
+  g_activeLow = activeLow;
+  pinMode(g_pin, OUTPUT);
+  writeLed(false);
+  g_tNext = millis();
+  g_step = 0;
+  g_mode = LedMode::OFF;
+
+#if defined(ESP32)
+  if (g_ledTask == nullptr)
+  {
+    xTaskCreatePinnedToCore(ledTask, "led_status", 1536, nullptr, 1, &g_ledTask, 1);
+  }
+#endif
+}
+
+void ledSetMode(LedMode mode)
+{
+  if (mode == g_mode)
+    return;
+  g_mode = mode;
+  g_step = 0;
+  g_tNext = millis();
+  // set immediate output for simple modes
+  if (g_mode == LedMode::OFF)
+    writeLed(false);
+  if (g_mode == LedMode::SOLID_ON)
+    writeLed(true);
+}
+
+LedMode ledGetMode() { return g_mode; }
+
+void ledSetError(bool isError)
+{
+  if (isError)
+    ledSetMode(LedMode::ERROR_TRIPLE);
+}
+
+void ledTick()
+{
+  serviceLed();
 }

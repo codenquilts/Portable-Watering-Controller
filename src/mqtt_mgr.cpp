@@ -127,6 +127,10 @@ static String haJsonNum(const char* key, int value) {
   return haJsonKey(key) + String(value);
 }
 
+static String haJsonNum(const char* key, float value) {
+  return haJsonKey(key) + String(value, 2);
+}
+
 static String base64Encode(const String& in) {
   static const char* table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   String out;
@@ -409,6 +413,37 @@ static void publishHomeAssistantDiscovery() {
       haJsonStr("mode", "box") + "," +
       haJsonStr("optimistic", "true") + "," +
       haJsonStr("icon", "mdi:timer-outline") + "," +
+      availability + "," + dev +
+      "}");
+
+  pubDiscovery(
+      "number",
+      "return_flow_ml_per_sec",
+      "{" +
+      haJsonStr("name", "Return Flow Rate") + "," +
+      haJsonStr("uniq_id", g_devId + "_return_flow_ml_per_sec") + "," +
+      haJsonStr("stat_t", stateBase + "return_flow_ml_per_sec") + "," +
+      haJsonStr("cmd_t", cmdBase + "return_flow_ml_per_sec") + "," +
+      haJsonStr("unit_of_measurement", "mL/s") + "," +
+      haJsonNum("min", 0) + "," +
+      haJsonNum("max", 100) + "," +
+      haJsonNum("step", 0.1f) + "," +
+      haJsonStr("mode", "box") + "," +
+      haJsonStr("icon", "mdi:pipe-valve") + "," +
+      haJsonStr("entity_category", "config") + "," +
+      availability + "," + dev +
+      "}");
+
+  pubDiscovery(
+      "sensor",
+      "actual_flow_ml_per_sec",
+      "{" +
+      haJsonStr("name", "Actual Flow Rate") + "," +
+      haJsonStr("uniq_id", g_devId + "_actual_flow_ml_per_sec") + "," +
+      haJsonStr("stat_t", stateBase + "actual_flow_ml_per_sec") + "," +
+      haJsonStr("unit_of_measurement", "mL/s") + "," +
+      haJsonStr("state_class", "measurement") + "," +
+      haJsonStr("icon", "mdi:water-pump") + "," +
       availability + "," + dev +
       "}");
 
@@ -725,6 +760,18 @@ static bool parseUInt16Payload(const String& payload, uint16_t& out) {
   return true;
 }
 
+static bool parseFloatPayload(const String& payload, float& out) {
+  String p = payload;
+  p.trim();
+  if (!p.length()) return false;
+
+  char* end = nullptr;
+  float value = strtof(p.c_str(), &end);
+  if (!end || *end != 0) return false;
+  out = value;
+  return true;
+}
+
 static void publishScheduleState(const char* name, const ScheduleCfg& sched) {
   if (!name) return;
 
@@ -963,6 +1010,25 @@ static void handleCmd(const String &tpc, const String &payload, RuntimeState &st
     return;
   }
 
+  if (tpc.endsWith("/cmd/return_flow_ml_per_sec"))
+  {
+    float returnFlow = cfg.returnFlowMlPerSec;
+    if (!parseFloatPayload(payload, returnFlow))
+    {
+      pubEvent("cmd_return_flow_invalid", "bad_flow", &cfg);
+      return;
+    }
+
+    if (returnFlow < 0.0f) returnFlow = 0.0f;
+    if (returnFlow > cfg.flowMlPerSec) returnFlow = cfg.flowMlPerSec;
+    cfg.returnFlowMlPerSec = returnFlow;
+    saveConfig(cfg);
+    pubFloat(topic("state/return_flow_ml_per_sec"), cfg.returnFlowMlPerSec, 2, true);
+    pubFloat(topic("state/actual_flow_ml_per_sec"), cfg.actualFlowMlPerSec(), 2, true);
+    pubEvent("cmd_return_flow_updated");
+    return;
+  }
+
   if (tpc.endsWith("/cmd/stop"))
   {
     bool doStop = false;
@@ -1061,6 +1127,7 @@ static bool mqttConnect(const DeviceCfg& cfg)
   g_mqtt.subscribe(topic("cmd/pump").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/run_now").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/manual_run").c_str(), 1);
+  g_mqtt.subscribe(topic("cmd/return_flow_ml_per_sec").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/stop").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/reboot").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/morning/enabled").c_str(), 1);
@@ -1129,6 +1196,9 @@ static void publishSlow(const DeviceCfg &cfg, RuntimeState &st, SensorsState &ss
   pubFloat(topic("state/tank_min_ml"), cfg.minLevelMl, 0, true);
   pubFloat(topic("state/tank_reset_ml"), cfg.resetLevelMl, 0, true);
   pubFloat(topic("state/usage_ml"), cfg.usageMl, 0, true);
+  pubFloat(topic("state/flow_ml_per_sec"), cfg.flowMlPerSec, 2, true);
+  pubFloat(topic("state/return_flow_ml_per_sec"), cfg.returnFlowMlPerSec, 2, true);
+  pubFloat(topic("state/actual_flow_ml_per_sec"), cfg.actualFlowMlPerSec(), 2, true);
   bool lowTank = (cfg.tankLevelMl <= cfg.minLevelMl);
   pubInt(topic("state/low_tank"), lowTank ? 1 : 0, true);
   if (cfg.notifyLowTank && !cfg.notifyEmail.isEmpty()) {

@@ -34,7 +34,7 @@ static constexpr uint8_t PIN_ADC_VBAT = 34; // input only pin (good choice)
 
 // ---------------- Tank model ----------------
 static constexpr float TANK_TOTAL_ML = 55000.0f;
-static constexpr float FLOW_ML_PER_SEC = 7.5f;
+static constexpr float FLOW_ML_PER_SEC = 70.0f;
 static constexpr float TANK_MIN_ML = 500.0f;
 
 // ---------------- Scheduler limits ----------------

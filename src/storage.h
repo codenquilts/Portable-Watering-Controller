@@ -41,9 +41,15 @@ struct DeviceCfg {
   float tankLevelMl = 55000.0f;
   float usageMl     = 0.0f;
 
-  float flowMlPerSec = 7.5f;
-  float minLevelMl   = 500.0f;
-  float resetLevelMl = 55000.0f;
+  float flowMlPerSec       = 70.0f;
+  float returnFlowMlPerSec = 0.0f;
+  float minLevelMl         = 500.0f;
+  float resetLevelMl       = 55000.0f;
+
+  float actualFlowMlPerSec() const {
+    const float actual = flowMlPerSec - returnFlowMlPerSec;
+    return actual > 0.0f ? actual : 0.0f;
+  }
 
   String timeZone = "AEST-10AEDT,M10.1.0/2,M4.1.0/3"; // default to Melbourne TZ
 };

@@ -97,7 +97,6 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
             {
   StaticJsonDocument<3072> doc;
 
-  
 
   doc["time_valid"] = timeIsValid() ? 1 : 0;
 
@@ -123,6 +122,9 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
   doc["tank_ml"]     = g_cfg->tankLevelMl;
   doc["usage_ml"]    = g_cfg->usageMl;
   doc["tank_total_ml"] = g_cfg->resetLevelMl;
+  doc["flow_ml_per_sec"] = g_cfg->flowMlPerSec;
+  doc["return_flow_ml_per_sec"] = g_cfg->returnFlowMlPerSec;
+  doc["actual_flow_ml_per_sec"] = g_cfg->actualFlowMlPerSec();
   doc["time_zone"] = g_cfg->timeZone;
   doc["notify_email"] = g_cfg->notifyEmail;
   doc["notify_low_tank"] = g_cfg->notifyLowTank;
@@ -365,6 +367,51 @@ else                    pumpStartForMinutes(*g_st, g_cfg->evening.runMin, "MANUA
       delay(250);
       wifiResetCredentials(); });
 
+  server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *req)
+            {
+      std::vector<String> networks = wifiScanNetworks();
+      StaticJsonDocument<2048> doc;
+      JsonArray arr = doc.createNestedArray("networks");
+      for (const auto& network : networks) {
+        arr.add(network);
+      }
+      sendJson(req, doc); });
+
+  server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *req) {}, nullptr, [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t, size_t)
+            {
+
+      StaticJsonDocument<256> in;
+      StaticJsonDocument<192> out;
+
+      auto err = deserializeJson(in, data, len);
+      if (err) {
+        out["ok"] = false;
+        out["err"] = "bad_json";
+        sendJson(req, out);
+        return;
+      }
+
+      String ssid = (const char*)(in["ssid"] | "");
+      String pass = (const char*)(in["pass"] | "");
+      ssid.trim();
+
+      if (ssid.isEmpty()) {
+        out["ok"] = false;
+        out["err"] = "missing_ssid";
+        sendJson(req, out);
+        return;
+      }
+
+      if (wifiTryConnect(ssid, pass, g_cfg->deviceName)) {
+        out["ok"] = true;
+        out["ip"] = wifiIpString();
+      } else {
+        out["ok"] = false;
+        out["err"] = "connect_failed";
+      }
+
+      sendJson(req, out); });
+
   // ----------------------------
   // Device settings (name + AP creds)
   // ----------------------------
@@ -428,6 +475,13 @@ else                    pumpStartForMinutes(*g_st, g_cfg->evening.runMin, "MANUA
         }
       }
 
+      if (in.containsKey("return_flow_ml_per_sec")) {
+        float val = in["return_flow_ml_per_sec"];
+        if (val < 0.0f) val = 0.0f;
+        if (val > g_cfg->flowMlPerSec) val = g_cfg->flowMlPerSec;
+        g_cfg->returnFlowMlPerSec = val;
+      }
+
       saveConfig(*g_cfg);
 
       out["ok"] = true;
@@ -447,64 +501,3 @@ void webLoop()
     dns.processNextRequest();
   }
 }
-
-
-
-    s e r v e r . o n ( " / a p i / w i f i / r e s e t " ,   H T T P _ P O S T ,   [ ] ( A s y n c W e b S e r v e r R e q u e s t   * r e q )   { } ,   n u l l p t r ,   [ ] ( A s y n c W e b S e r v e r R e q u e s t   * r e q ,   u i n t 8 _ t   * ,   s i z e _ t ,   s i z e _ t ,   s i z e _ t ) 
-                         { 
- 
-             S t a t i c J s o n D o c u m e n t < 1 2 8 >   o u t ; 
-             o u t [ " o k " ]     =   t r u e ; 
-             o u t [ " m s g " ]   =   " r e s e t t i n g " ; 
-             s e n d J s o n ( r e q ,   o u t ) ; 
- 
-             d e l a y ( 2 5 0 ) ; 
-             w i f i R e s e t C r e d e n t i a l s ( ) ;   } ) ; 
- 
-     / /   - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-     / /   B u i l t - i n   W i F i   M a n a g e r 
-     / /   - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-     s e r v e r . o n ( " / a p i / w i f i / s c a n " ,   H T T P _ G E T ,   [ ] ( A s y n c W e b S e r v e r R e q u e s t   * r e q ) 
-                         { 
-         s t d : : v e c t o r < S t r i n g >   n e t w o r k s   =   w i f i S c a n N e t w o r k s ( ) ; 
-         S t a t i c J s o n D o c u m e n t < 2 0 4 8 >   d o c ; 
-         J s o n A r r a y   a r r   =   d o c . c r e a t e N e s t e d A r r a y ( " n e t w o r k s " ) ; 
-         f o r   ( a u t o &   n   :   n e t w o r k s )   { 
-             a r r . a d d ( n ) ; 
-         } 
-         s e n d J s o n ( r e q ,   d o c ) ; 
-     } ) ; 
- 
-     s e r v e r . o n ( " / a p i / w i f i / c o n n e c t " ,   H T T P _ P O S T ,   [ ] ( A s y n c W e b S e r v e r R e q u e s t   * r e q )   { } ,   n u l l p t r ,   [ ] ( A s y n c W e b S e r v e r R e q u e s t   * r e q ,   u i n t 8 _ t   * d a t a ,   s i z e _ t   l e n ,   s i z e _ t ,   s i z e _ t ) 
-                         { 
-         S t a t i c J s o n D o c u m e n t < 2 5 6 >   i n ; 
-         S t a t i c J s o n D o c u m e n t < 1 2 8 >   o u t ; 
-         a u t o   e r r   =   d e s e r i a l i z e J s o n ( i n ,   d a t a ,   l e n ) ; 
-         i f   ( e r r )   { 
-             o u t [ " o k " ]   =   f a l s e ; 
-             o u t [ " e r r " ]   =   " b a d _ j s o n " ; 
-             s e n d J s o n ( r e q ,   o u t ) ; 
-             r e t u r n ; 
-         } 
-         S t r i n g   s s i d   =   i n [ " s s i d " ] ; 
-         S t r i n g   p a s s   =   i n [ " p a s s " ] ; 
-         i f   ( s s i d . l e n g t h ( )   = =   0 )   { 
-             o u t [ " o k " ]   =   f a l s e ; 
-             o u t [ " e r r " ]   =   " m i s s i n g _ s s i d " ; 
-             s e n d J s o n ( r e q ,   o u t ) ; 
-             r e t u r n ; 
-         } 
-         i f   ( w i f i T r y C o n n e c t ( s s i d ,   p a s s ,   g _ c f g - > d e v i c e N a m e ) )   { 
-             o u t [ " o k " ]   =   t r u e ; 
-             o u t [ " i p " ]   =   w i f i I p S t r i n g ( ) ; 
-         }   e l s e   { 
-             o u t [ " o k " ]   =   f a l s e ; 
-             o u t [ " e r r " ]   =   " c o n n e c t _ f a i l e d " ; 
-         } 
-         s e n d J s o n ( r e q ,   o u t ) ; 
-     } ) ; 
- 
-     / /   - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-     / /   D e v i c e   s e t t i n g s   ( n a m e   +   A P   c r e d s ) 
-     / /   - - - - - - - - - - - - - - - - - - - - - - - - - - - -  
- 

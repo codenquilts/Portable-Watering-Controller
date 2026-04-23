@@ -186,6 +186,11 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
       <input type="number" id="tankTotal" min="1000" step="100" placeholder="55000">
     </label>
 
+    <label>Return Flow Rate (mL/sec)
+      <input type="number" id="returnFlow" min="0" step="0.1" placeholder="0">
+    </label>
+    <div class="note" id="actualFlowState"></div>
+
     <hr class="sep">
 
     <label>Notification Email
@@ -402,6 +407,8 @@ async function loadAll(){
     setIfNotFocused(apSsid, (s.ap_ssid || ""));
     setIfNotFocused(timeZone, (s.time_zone || "AEST-10AEDT,M10.1.0/2,M4.1.0/3"));
     setIfNotFocused(tankTotal, (s.tank_total_ml || 55000));
+    setIfNotFocused(returnFlow, (s.return_flow_ml_per_sec ?? 0));
+    actualFlowState.textContent = "Pump max: " + Number(s.flow_ml_per_sec ?? 0).toFixed(1) + " mL/sec. Actual watering flow: " + Number(s.actual_flow_ml_per_sec ?? 0).toFixed(1) + " mL/sec.";
     setIfNotFocused(notifyEmail, (s.notify_email || ""));
     setCheckIfNotFocused(notifyLowTank, !!s.notify_low_tank);
     setCheckIfNotFocused(notifyErrors, !!s.notify_errors);
@@ -511,6 +518,7 @@ async function saveDevice(){
       ap_ssid:     (apSsid.value  || "").trim(),
       time_zone: (timeZone.value || "").trim(),
       tank_total_ml: parseFloat(tankTotal.value || 55000),
+      return_flow_ml_per_sec: parseFloat(returnFlow.value || 0),
       notify_email: (notifyEmail.value || "").trim(),
       notify_low_tank: !!notifyLowTank.checked,
       notify_errors: !!notifyErrors.checked,
@@ -596,57 +604,63 @@ async function resetWifi(){
   }
 }
 
+async function scanWifi(){
+  showToast("Scanning Wi-Fi...");
+  try{
+    const r = await fetch("/api/wifi/scan");
+    const data = await r.json();
+    const results = document.getElementById("scanResults");
+    results.innerHTML = "";
+
+    const networks = Array.isArray(data.networks) ? data.networks : [];
+    if(networks.length === 0){
+      results.textContent = "No networks found";
+      return;
+    }
+
+    networks.forEach(ssid => {
+      const btn = document.createElement("button");
+      btn.className = "btn-run";
+      btn.style.width = "100%";
+      btn.textContent = ssid;
+      btn.onclick = () => {
+        document.getElementById("wifiSsid").value = ssid;
+      };
+      results.appendChild(btn);
+    });
+  }catch(e){
+    console.error(e);
+    showToast("Scan failed");
+  }
+}
+
+async function connectWifi(){
+  const ssid = document.getElementById("wifiSsid").value.trim();
+  const pass = document.getElementById("wifiPass").value;
+
+  if(!ssid){
+    showToast("Enter SSID");
+    return;
+  }
+
+  showToast("Connecting...");
+  try{
+    const r = await apiPost("/api/wifi/connect", {ssid, pass});
+    if(r && r.ok){
+      showToast("Connected: " + r.ip);
+      setTimeout(loadAll, 1000);
+    }else{
+      showToast("Connect failed");
+    }
+  }catch(e){
+    console.error(e);
+    showToast("Connect failed");
+  }
+}
+
 setInterval(loadAll, 10000);
 window.onload = () => { loadAll(); };
 </script>
 </body>
 </html>
 )HTML";
-
-
-
-
-
-
-
-a s y n c   f u n c t i o n   s c a n W i f i ( )   { 
-     t r y   { 
-         c o n s t   r   =   a w a i t   f e t c h ( " / a p i / w i f i / s c a n " ) ; 
-         c o n s t   d a t a   =   a w a i t   r . j s o n ( ) ; 
-         c o n s t   r e s u l t s   =   d o c u m e n t . g e t E l e m e n t B y I d ( " s c a n R e s u l t s " ) ; 
-         r e s u l t s . i n n e r H T M L   =   " " ; 
-         d a t a . n e t w o r k s . f o r E a c h ( s s i d   = >   { 
-             c o n s t   b t n   =   d o c u m e n t . c r e a t e E l e m e n t ( " b u t t o n " ) ; 
-             b t n . c l a s s N a m e   =   " b t n - r u n " ; 
-             b t n . t e x t C o n t e n t   =   s s i d ; 
-             b t n . o n c l i c k   =   ( )   = >   {   d o c u m e n t . g e t E l e m e n t B y I d ( " w i f i S s i d " ) . v a l u e   =   s s i d ;   } ; 
-             r e s u l t s . a p p e n d C h i l d ( b t n ) ; 
-         } ) ; 
-     }   c a t c h ( e )   { 
-         c o n s o l e . e r r o r ( e ) ; 
-         s h o w T o a s t ( " S c a n   f a i l e d " ) ; 
-     } 
- } 
- 
- a s y n c   f u n c t i o n   c o n n e c t W i f i ( )   { 
-     c o n s t   s s i d   =   d o c u m e n t . g e t E l e m e n t B y I d ( " w i f i S s i d " ) . v a l u e . t r i m ( ) ; 
-     c o n s t   p a s s   =   d o c u m e n t . g e t E l e m e n t B y I d ( " w i f i P a s s " ) . v a l u e ; 
-     i f   ( ! s s i d )   { 
-         s h o w T o a s t ( " E n t e r   S S I D " ) ; 
-         r e t u r n ; 
-     } 
-     s h o w T o a s t ( " C o n n e c t i n g . . . " ) ; 
-     t r y   { 
-         c o n s t   r   =   a w a i t   a p i P o s t ( " / a p i / w i f i / c o n n e c t " ,   { s s i d ,   p a s s } ) ; 
-         i f   ( r . o k )   { 
-             s h o w T o a s t ( " C o n n e c t e d !   I P :   "   +   r . i p ) ; 
-             s e t T i m e o u t ( l o a d A l l ,   1 0 0 0 ) ; 
-         }   e l s e   { 
-             s h o w T o a s t ( " C o n n e c t   f a i l e d " ) ; 
-         } 
-     }   c a t c h ( e )   { 
-         s h o w T o a s t ( " C o n n e c t   f a i l e d " ) ; 
-     } 
- } 
- 
- 
