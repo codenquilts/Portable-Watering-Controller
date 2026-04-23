@@ -43,7 +43,7 @@ void tankLoop(DeviceCfg& cfg, RuntimeState& st, SensorsState& ss) {
   if (millis() - lastTankTick < TANK_TICK_MS) return;
   lastTankTick = millis();
 
-  if (st.pumpOn) {
+  if (st.pumpOn && st.activeZone != 2) {
     float dec = cfg.actualFlowMlPerSec() * (TANK_TICK_MS / 1000.0f);
     cfg.tankLevelMl -= dec;
     cfg.usageMl     += dec;

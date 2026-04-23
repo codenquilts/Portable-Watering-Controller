@@ -97,11 +97,11 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
 
 <div class="card">
   <fieldset>
-    <legend>Morning Schedule</legend>
-    <label>Start Time (24 hr)
+    <legend id="m_title">Morning Schedule</legend>
+    <label id="m_start_label">Start Time (24 hr)
       <input type="text" id="m_start" inputmode="numeric" placeholder="0630">
     </label>
-    <label>Run Time (min)
+    <label id="m_run_label">Run Time (min)
       <input type="number" id="m_run" placeholder="5">
     </label>
     <label><input type="checkbox" id="m_enabled"> Enabled</label>
@@ -117,18 +117,18 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
     </div>
     <div class="buttons">
       <button class="btn-save" onclick="saveSchedule('morning')">Save</button>
-      <button class="btn-run" onclick="runNow('Morning')">Run Now</button>
+      <button id="m_run_now" class="btn-run" onclick="runNow('Morning')">Run Now</button>
     </div>
   </fieldset>
 </div>
 
 <div class="card">
   <fieldset>
-    <legend>Evening Schedule</legend>
-    <label>Start Time (24 hr)
+    <legend id="e_title">Evening Schedule</legend>
+    <label id="e_start_label">Start Time (24 hr)
       <input type="text" id="e_start" inputmode="numeric" placeholder="1830">
     </label>
-    <label>Run Time (min)
+    <label id="e_run_label">Run Time (min)
       <input type="number" id="e_run" placeholder="5">
     </label>
     <label><input type="checkbox" id="e_enabled"> Enabled</label>
@@ -144,7 +144,7 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
     </div>
     <div class="buttons">
       <button class="btn-save" onclick="saveSchedule('evening')">Save</button>
-      <button class="btn-run" onclick="runNow('Evening')">Run Now</button>
+      <button id="e_run_now" class="btn-run" onclick="runNow('Evening')">Run Now</button>
     </div>
   </fieldset>
 </div>
@@ -190,6 +190,8 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
       <input type="number" id="returnFlow" min="0" step="0.1" placeholder="0">
     </label>
     <div class="note" id="actualFlowState"></div>
+
+    <label><input type="checkbox" id="twoRelayVersion" onchange="applyRelayLabels(this.checked)"> 2 Relay Version (Zone 2 on GPIO17)</label>
 
     <hr class="sep">
 
@@ -326,6 +328,21 @@ function clampRun(n){
   if(n<1){return 1;}
   return n;
 }
+function clampRunSeconds(n){
+  n=parseInt(n||"0",10);
+  if(n>900){showToast("Max run 900 sec"); return 900;}
+  if(n<1){return 1;}
+  return n;
+}
+function applyRelayLabels(twoRelay){
+  const z1 = !!twoRelay;
+  m_title.textContent = z1 ? "Zone 1 Schedule" : "Morning Schedule";
+  e_title.textContent = z1 ? "Zone 2 Schedule" : "Evening Schedule";
+  m_run_label.childNodes[0].nodeValue = "Run Time (min) ";
+  e_run_label.childNodes[0].nodeValue = z1 ? "Run Time (sec) " : "Run Time (min) ";
+  m_run_now.onclick = () => runNow(z1 ? "Zone1" : "Morning");
+  e_run_now.onclick = () => runNow(z1 ? "Zone2" : "Evening");
+}
 function normalizeDaysMask(mask){
   return Number(mask ?? 127) & 127;
 }
@@ -392,6 +409,7 @@ async function loadAll(){
     const nm = (s.net_mode || "");
     const url = ip ? ("http://" + ip + "/") : "";
     netMode.innerHTML = "Network: " + nm + (ip ? (" @ <a class='link' href='"+url+"'>"+ip+"</a>") : "");
+    applyRelayLabels(!!s.two_relay_version);
 
     setIfNotFocused(m_start, (s.morning?.start_hhmm ?? 630).toString().padStart(4,"0"));
     setIfNotFocused(m_run, (s.morning?.run_min ?? 5));
@@ -399,7 +417,7 @@ async function loadAll(){
     setDays("m", s.morning?.days ?? s.morning?.days_mask ?? 127);
 
     setIfNotFocused(e_start, (s.evening?.start_hhmm ?? 1830).toString().padStart(4,"0"));
-    setIfNotFocused(e_run, (s.evening?.run_min ?? 5));
+    setIfNotFocused(e_run, s.two_relay_version ? (s.evening?.run_s ?? 300) : (s.evening?.run_min ?? 5));
     setCheckIfNotFocused(e_enabled, !!(s.evening?.enabled));
     setDays("e", s.evening?.days ?? s.evening?.days_mask ?? 127);
 
@@ -409,6 +427,7 @@ async function loadAll(){
     setIfNotFocused(tankTotal, (s.tank_total_ml || 55000));
     setIfNotFocused(returnFlow, (s.return_flow_ml_per_sec ?? 0));
     actualFlowState.textContent = "Pump max: " + Number(s.flow_ml_per_sec ?? 0).toFixed(1) + " mL/sec. Actual watering flow: " + Number(s.actual_flow_ml_per_sec ?? 0).toFixed(1) + " mL/sec.";
+    setCheckIfNotFocused(twoRelayVersion, !!s.two_relay_version);
     setIfNotFocused(notifyEmail, (s.notify_email || ""));
     setCheckIfNotFocused(notifyLowTank, !!s.notify_low_tank);
     setCheckIfNotFocused(notifyErrors, !!s.notify_errors);
@@ -442,8 +461,9 @@ async function loadAll(){
       const remaining = Number(s.pump_remaining_s || 0);
       const requested = Number(s.pump_requested_s || 0);
       const active = on && remaining ? (" - " + remaining + "s left") : "";
+      const zone = on && s.active_zone ? (" - Zone " + s.active_zone) : "";
       const requestedText = requested ? (" / " + requested + "s requested") : "";
-      lastWatering.textContent = start + (runS ? (" - " + runS + "s" + requestedText) : active) + (reason ? (" - " + reason) : "");
+      lastWatering.textContent = start + zone + (runS ? (" - " + runS + "s" + requestedText) : active) + (reason ? (" - " + reason) : "");
     }
 
   }catch(e){
@@ -459,15 +479,18 @@ async function saveSchedule(which){
       const run=clampRun(m_run.value);
       const en=!!m_enabled.checked;
       const daysMask=getDaysMask("m");
-      await apiPost("/api/schedule/morning",{start_hhmm:parseInt(start,10),run_min:run,enabled:en,days_mask:daysMask});
-      showToast("Morning saved");
+      await apiPost("/api/schedule/morning",{start_hhmm:parseInt(start,10),run_min:run,enabled:en,days_mask:daysMask,two_relay_version:!!twoRelayVersion.checked});
+      showToast(twoRelayVersion.checked ? "Zone 1 saved" : "Morning saved");
     } else {
       const start=digits4(e_start.value);
-      const run=clampRun(e_run.value);
+      const twoRelay = !!twoRelayVersion.checked;
+      const run=twoRelay ? clampRunSeconds(e_run.value) : clampRun(e_run.value);
       const en=!!e_enabled.checked;
       const daysMask=getDaysMask("e");
-      await apiPost("/api/schedule/evening",{start_hhmm:parseInt(start,10),run_min:run,enabled:en,days_mask:daysMask});
-      showToast("Evening saved");
+      const payload={start_hhmm:parseInt(start,10),enabled:en,days_mask:daysMask,two_relay_version:twoRelay};
+      if(twoRelay) payload.run_s=run; else payload.run_min=run;
+      await apiPost("/api/schedule/evening",payload);
+      showToast(twoRelay ? "Zone 2 saved" : "Evening saved");
     }
     loadAll();
   }catch(e){
@@ -519,6 +542,7 @@ async function saveDevice(){
       time_zone: (timeZone.value || "").trim(),
       tank_total_ml: parseFloat(tankTotal.value || 55000),
       return_flow_ml_per_sec: parseFloat(returnFlow.value || 0),
+      two_relay_version: !!twoRelayVersion.checked,
       notify_email: (notifyEmail.value || "").trim(),
       notify_low_tank: !!notifyLowTank.checked,
       notify_errors: !!notifyErrors.checked,

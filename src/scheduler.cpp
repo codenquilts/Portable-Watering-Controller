@@ -45,26 +45,36 @@ static void setReason(RuntimeState& st, const char* reason) {
 void schedulerBegin() {
   pinMode(PIN_RELAY, OUTPUT);
   digitalWrite(PIN_RELAY, RELAY_OFF_LEVEL);
+  pinMode(PIN_RELAY2, OUTPUT);
+  digitalWrite(PIN_RELAY2, RELAY_OFF_LEVEL);
 }
 
-// 3-arg version (reason-aware)
-void pumpStartForMinutes(RuntimeState& st, uint8_t minutes, const char* reason) {
-  pinMode(PIN_RELAY, OUTPUT);
+static uint8_t relayPinForZone(uint8_t zone) {
+  return zone == 2 ? PIN_RELAY2 : PIN_RELAY;
+}
 
-  digitalWrite(PIN_RELAY, RELAY_ON_LEVEL);
+void pumpStartForSeconds(RuntimeState& st, uint16_t seconds, uint8_t zone, const char* reason) {
+  const uint8_t pin = relayPinForZone(zone);
+  pinMode(PIN_RELAY, OUTPUT);
+  pinMode(PIN_RELAY2, OUTPUT);
+
+  digitalWrite(PIN_RELAY, RELAY_OFF_LEVEL);
+  digitalWrite(PIN_RELAY2, RELAY_OFF_LEVEL);
+  digitalWrite(pin, RELAY_ON_LEVEL);
   st.pumpOn = true;
+  st.activeZone = (zone == 2) ? 2 : 1;
 
   // LED: pump active
   ledSetMode(LedMode::SOLID_ON);
 
-  if (minutes == 0) minutes = 1;
-  if (minutes > RUN_MAX_MINUTES) minutes = RUN_MAX_MINUTES;
+  if (seconds < RUN_MIN_SECONDS) seconds = RUN_MIN_SECONDS;
+  if (seconds > RUN_MAX_SECONDS) seconds = RUN_MAX_SECONDS;
 
   const uint32_t nowMs = millis();
-  const uint32_t runMs = (uint32_t)minutes * 60UL * 1000UL;
+  const uint32_t runMs = (uint32_t)seconds * 1000UL;
   st.pumpStartMs = nowMs;
   st.pumpStopAtMs = nowMs + runMs;
-  st.requestedRunS = (uint16_t)minutes * 60U;
+  st.requestedRunS = seconds;
 
   // ----- RAM log -----
   setReason(st, reason);
@@ -72,16 +82,26 @@ void pumpStartForMinutes(RuntimeState& st, uint8_t minutes, const char* reason) 
   st.lastStopTs  = 0;
   st.lastRunS    = 0;
 
-  Serial.printf("PUMP START: reason=%s requested=%us stop_in_ms=%lu\n",
+  Serial.printf("PUMP START: reason=%s zone=%u requested=%us stop_in_ms=%lu\n",
                 st.lastReason,
+                (unsigned)st.activeZone,
                 (unsigned)st.requestedRunS,
                 (unsigned long)runMs);
 }
 
+// 3-arg version (reason-aware)
+void pumpStartForMinutes(RuntimeState& st, uint8_t minutes, const char* reason) {
+  if (minutes == 0) minutes = 1;
+  if (minutes > RUN_MAX_MINUTES) minutes = RUN_MAX_MINUTES;
+  pumpStartForSeconds(st, (uint16_t)minutes * 60U, 1, reason);
+}
+
 void pumpStop(RuntimeState& st) {
   pinMode(PIN_RELAY, OUTPUT);
+  pinMode(PIN_RELAY2, OUTPUT);
 
   digitalWrite(PIN_RELAY, RELAY_OFF_LEVEL);
+  digitalWrite(PIN_RELAY2, RELAY_OFF_LEVEL);
   st.pumpOn = false;
 
   // LED: back to network indication
@@ -107,6 +127,7 @@ void pumpStop(RuntimeState& st) {
   st.pumpStartMs = 0;
   st.pumpStopAtMs = 0;
   st.requestedRunS = 0;
+  st.activeZone = 0;
 }
 
 void pumpStopWithReason(RuntimeState& st, const char* reason) {
@@ -137,9 +158,10 @@ static void tryStartSchedule(DeviceCfg& cfg, RuntimeState& st, const struct tm& 
       scheduleActiveOnDay(cfg.morning, t) &&
       hhmm == cfg.morning.startHHMM) {
     st.lastMinuteKey = mkey;
-    Serial.printf("SCHEDULE START: Morning %04u for %u min\n",
-                  cfg.morning.startHHMM, cfg.morning.runMin);
-    pumpStartForMinutes(st, cfg.morning.runMin, "MORNING");
+    const char* reason = cfg.twoRelayVersion ? "ZONE1" : "MORNING";
+    Serial.printf("SCHEDULE START: %s %04u for %u min\n",
+                  reason, cfg.morning.startHHMM, cfg.morning.runMin);
+    pumpStartForMinutes(st, cfg.morning.runMin, reason);
     return;
   }
 
@@ -148,9 +170,16 @@ static void tryStartSchedule(DeviceCfg& cfg, RuntimeState& st, const struct tm& 
       scheduleActiveOnDay(cfg.evening, t) &&
       hhmm == cfg.evening.startHHMM) {
     st.lastMinuteKey = mkey;
-    Serial.printf("SCHEDULE START: Evening %04u for %u min\n",
-                  cfg.evening.startHHMM, cfg.evening.runMin);
-    pumpStartForMinutes(st, cfg.evening.runMin, "EVENING");
+    const char* reason = cfg.twoRelayVersion ? "ZONE2" : "EVENING";
+    if (cfg.twoRelayVersion) {
+      Serial.printf("SCHEDULE START: Zone2 %04u for %u sec\n",
+                    cfg.evening.startHHMM, cfg.evening.runSec);
+      pumpStartForSeconds(st, cfg.evening.runSec, 2, reason);
+    } else {
+      Serial.printf("SCHEDULE START: Evening %04u for %u min\n",
+                    cfg.evening.startHHMM, cfg.evening.runMin);
+      pumpStartForMinutes(st, cfg.evening.runMin, reason);
+    }
     return;
   }
 
@@ -165,6 +194,7 @@ void schedulerLoop(DeviceCfg& cfg, RuntimeState& st) {
       // mark why it stopped (only if it wasn't already a known type)
       if (strncmp(st.lastReason, "MORNING", 7) != 0 &&
           strncmp(st.lastReason, "EVENING", 7) != 0 &&
+          strncmp(st.lastReason, "ZONE", 4)    != 0 &&
           strncmp(st.lastReason, "MANUAL", 6)  != 0 &&
           strncmp(st.lastReason, "MQTT", 4)    != 0) {
         setReason(st, "TIMEOUT");

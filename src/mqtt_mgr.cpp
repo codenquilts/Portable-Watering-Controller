@@ -782,6 +782,7 @@ static void publishScheduleState(const char* name, const ScheduleCfg& sched) {
   snprintf(hh, sizeof(hh), "%04u", (unsigned)sched.startHHMM);
   pubStr(base + "/start_hhmm", hh, true);
   pubInt(base + "/run_min", sched.runMin, true);
+  pubInt(base + "/run_s", sched.runSec, true);
   formatDaysMask(sched.daysMask, hh, sizeof(hh));
   pubStr(base + "/days_mask", hh, true);
   publishScheduleDays((String("state/schedule/") + name).c_str(), sched.daysMask);
@@ -817,6 +818,22 @@ static bool updateScheduleField(const char* name, ScheduleCfg& sched, const Stri
     if (run < RUN_MIN_MINUTES) run = RUN_MIN_MINUTES;
     if (run > RUN_MAX_MINUTES) run = RUN_MAX_MINUTES;
     sched.runMin = (uint8_t)run;
+    sched.runSec = (uint16_t)sched.runMin * 60U;
+    return true;
+  }
+
+  if (field == "run_s") {
+    uint16_t run = sched.runSec;
+    if (!parseUInt16Payload(payload, run)) {
+      pubEvent("cmd_schedule_invalid", name, &cfg);
+      return false;
+    }
+    if (run < RUN_MIN_SECONDS) run = RUN_MIN_SECONDS;
+    if (run > RUN_MAX_SECONDS) run = RUN_MAX_SECONDS;
+    sched.runSec = run;
+    sched.runMin = (uint8_t)((run + 59U) / 60U);
+    if (sched.runMin < RUN_MIN_MINUTES) sched.runMin = RUN_MIN_MINUTES;
+    if (sched.runMin > RUN_MAX_MINUTES) sched.runMin = RUN_MAX_MINUTES;
     return true;
   }
 
@@ -944,7 +961,7 @@ static void handleCmd(const String &tpc, const String &payload, RuntimeState &st
         return;
       }
       // Default ON = morning run length
-      pumpStartForMinutes(st, (uint8_t)cfg.morning.runMin, "MQTT_PUMP_ON");
+      pumpStartForMinutes(st, (uint8_t)cfg.morning.runMin, cfg.twoRelayVersion ? "MQTT_ZONE1" : "MQTT_PUMP_ON");
       pubEvent("cmd_pump_on");
       return;
     }
@@ -969,17 +986,22 @@ static void handleCmd(const String &tpc, const String &payload, RuntimeState &st
       return;
     }
 
-    if (p == "MORNING")
+    if (p == "MORNING" || p == "ZONE1")
     {
-      pumpStartForMinutes(st, cfg.morning.runMin, "MQTT_RUN_MORNING");
-      pubEvent("cmd_run_now", "morning");
+      pumpStartForMinutes(st, cfg.morning.runMin, cfg.twoRelayVersion ? "MQTT_ZONE1" : "MQTT_RUN_MORNING");
+      pubEvent("cmd_run_now", cfg.twoRelayVersion ? "zone1" : "morning");
       return;
     }
 
-    if (p == "EVENING")
+    if (p == "EVENING" || p == "ZONE2")
     {
-      pumpStartForMinutes(st, cfg.evening.runMin, "MQTT_RUN_EVENING");
-      pubEvent("cmd_run_now", "evening");
+      if (cfg.twoRelayVersion) {
+        pumpStartForSeconds(st, cfg.evening.runSec, 2, "MQTT_ZONE2");
+        pubEvent("cmd_run_now", "zone2");
+      } else {
+        pumpStartForMinutes(st, cfg.evening.runMin, "MQTT_RUN_EVENING");
+        pubEvent("cmd_run_now", "evening");
+      }
       return;
     }
   }
@@ -1133,6 +1155,7 @@ static bool mqttConnect(const DeviceCfg& cfg)
   g_mqtt.subscribe(topic("cmd/schedule/morning/enabled").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/morning/start_hhmm").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/morning/run_min").c_str(), 1);
+  g_mqtt.subscribe(topic("cmd/schedule/morning/run_s").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/morning/days_mask").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/morning/day/sun").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/morning/day/mon").c_str(), 1);
@@ -1144,6 +1167,7 @@ static bool mqttConnect(const DeviceCfg& cfg)
   g_mqtt.subscribe(topic("cmd/schedule/evening/enabled").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/evening/start_hhmm").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/evening/run_min").c_str(), 1);
+  g_mqtt.subscribe(topic("cmd/schedule/evening/run_s").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/evening/days_mask").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/evening/day/sun").c_str(), 1);
   g_mqtt.subscribe(topic("cmd/schedule/evening/day/mon").c_str(), 1);
@@ -1187,6 +1211,7 @@ static void publishSlow(const DeviceCfg &cfg, RuntimeState &st, SensorsState &ss
   pubStr(topic("state/time_src"), timeSourceStr(), true);
 
   pubInt(topic("state/boot_ready"), st.bootReady ? 1 : 0, true);
+  pubInt(topic("state/two_relay_version"), cfg.twoRelayVersion ? 1 : 0, true);
 
   // Sensors
   pubFloat(topic("state/voltage_v"), ss.voltageV, 2, true);
@@ -1223,6 +1248,7 @@ static void publishSlow(const DeviceCfg &cfg, RuntimeState &st, SensorsState &ss
   snprintf(hh, sizeof(hh), "%04u", (unsigned)cfg.morning.startHHMM);
   pubStr(topic("state/schedule/morning/start_hhmm"), hh, true);
   pubInt(topic("state/schedule/morning/run_min"), cfg.morning.runMin, true);
+  pubInt(topic("state/schedule/morning/run_s"), cfg.morning.runSec, true);
   formatDaysMask(cfg.morning.daysMask, hh, sizeof(hh));
   pubStr(topic("state/schedule/morning/days_mask"), hh, true);
   publishScheduleDays("state/schedule/morning", cfg.morning.daysMask);
@@ -1231,12 +1257,14 @@ static void publishSlow(const DeviceCfg &cfg, RuntimeState &st, SensorsState &ss
   snprintf(hh, sizeof(hh), "%04u", (unsigned)cfg.evening.startHHMM);
   pubStr(topic("state/schedule/evening/start_hhmm"), hh, true);
   pubInt(topic("state/schedule/evening/run_min"), cfg.evening.runMin, true);
+  pubInt(topic("state/schedule/evening/run_s"), cfg.evening.runSec, true);
   formatDaysMask(cfg.evening.daysMask, hh, sizeof(hh));
   pubStr(topic("state/schedule/evening/days_mask"), hh, true);
   publishScheduleDays("state/schedule/evening", cfg.evening.daysMask);
 
   // Pump state + RAM log fields
   pubInt(topic("state/pump_on"), st.pumpOn ? 1 : 0, true);
+  pubInt(topic("state/active_zone"), st.activeZone, true);
   pubUInt(topic("state/pump_elapsed_s"), pumpElapsedS(st), true);
   pubUInt(topic("state/pump_remaining_s"), pumpRemainingSeconds(st), true);
   pubUInt(topic("state/pump_requested_s"), st.requestedRunS, true);
@@ -1251,6 +1279,7 @@ static void publishFast(const DeviceCfg &cfg, RuntimeState &st, SensorsState &ss
 {
   // While pump running, publish these more often
   pubInt(topic("state/pump_on"), st.pumpOn ? 1 : 0, true);
+  pubInt(topic("state/active_zone"), st.activeZone, true);
 
   // elapsed seconds since start
   pubUInt(topic("state/pump_elapsed_s"), pumpElapsedS(st), true);

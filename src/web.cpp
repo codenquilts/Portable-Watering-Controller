@@ -37,6 +37,7 @@ static void addScheduleJson(JsonObject obj, const ScheduleCfg &sched)
 {
   obj["start_hhmm"] = sched.startHHMM;
   obj["run_min"] = sched.runMin;
+  obj["run_s"] = sched.runSec;
   obj["enabled"] = sched.enabled;
   const uint8_t daysMask = sanitizeDaysMask(sched.daysMask);
   obj["days_mask"] = daysMask;
@@ -140,7 +141,10 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
   doc["smtp_from"] = g_cfg->smtpFrom;
   doc["smtp_ssl"] = g_cfg->smtpUseSsl;
   doc["smtp_pass_set"] = !g_cfg->smtpPass.isEmpty();
+  doc["two_relay_version"] = g_cfg->twoRelayVersion;
+  doc["relay2_pin"] = PIN_RELAY2;
   doc["pump_on"]     = g_st->pumpOn;
+  doc["active_zone"] = g_st->activeZone;
   doc["pump_remaining_s"] = pumpRemainingSeconds(*g_st);
   doc["pump_requested_s"] = g_st->requestedRunS;
   doc["boot_ready"]  = g_st->bootReady;
@@ -176,6 +180,7 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
         sendJson(req, out);
         return;
       }
+      if (in.containsKey("two_relay_version")) g_cfg->twoRelayVersion = in["two_relay_version"];
 
       uint16_t stt = in["start_hhmm"] | g_cfg->morning.startHHMM;
       uint8_t  run = in["run_min"]    | g_cfg->morning.runMin;
@@ -188,6 +193,7 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
 
       g_cfg->morning.startHHMM = stt;
       g_cfg->morning.runMin    = run;
+      g_cfg->morning.runSec    = (uint16_t)run * 60U;
       g_cfg->morning.enabled   = en;
       g_cfg->morning.daysMask  = days;
 
@@ -212,18 +218,32 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
         sendJson(req, out);
         return;
       }
+      if (in.containsKey("two_relay_version")) g_cfg->twoRelayVersion = in["two_relay_version"];
 
       uint16_t stt = in["start_hhmm"] | g_cfg->evening.startHHMM;
       uint8_t  run = in["run_min"]    | g_cfg->evening.runMin;
+      uint16_t runS = in["run_s"]     | g_cfg->evening.runSec;
       bool     en  = in["enabled"]    | g_cfg->evening.enabled;
       uint8_t  days = sanitizeDaysMask(in["days_mask"] | g_cfg->evening.daysMask);
 
-      if (run < RUN_MIN_MINUTES) run = RUN_MIN_MINUTES;
-      if (run > RUN_MAX_MINUTES) run = RUN_MAX_MINUTES;
+      const bool useSeconds = g_cfg->twoRelayVersion || in.containsKey("run_s");
+      if (useSeconds) {
+        if (!in.containsKey("run_s")) runS = (uint16_t)run * 60U;
+        if (runS < RUN_MIN_SECONDS) runS = RUN_MIN_SECONDS;
+        if (runS > RUN_MAX_SECONDS) runS = RUN_MAX_SECONDS;
+        run = (uint8_t)((runS + 59U) / 60U);
+        if (run < RUN_MIN_MINUTES) run = RUN_MIN_MINUTES;
+        if (run > RUN_MAX_MINUTES) run = RUN_MAX_MINUTES;
+      } else {
+        if (run < RUN_MIN_MINUTES) run = RUN_MIN_MINUTES;
+        if (run > RUN_MAX_MINUTES) run = RUN_MAX_MINUTES;
+        runS = (uint16_t)run * 60U;
+      }
       if (stt > 2359) stt = 2359;
 
       g_cfg->evening.startHHMM = stt;
       g_cfg->evening.runMin    = run;
+      g_cfg->evening.runSec    = runS;
       g_cfg->evening.enabled   = en;
       g_cfg->evening.daysMask  = days;
 
@@ -295,8 +315,13 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
       g_st->lastStopTs = 0;
       g_st->lastRunS   = 0;
 
-      if (which == "Morning") pumpStartForMinutes(*g_st, g_cfg->morning.runMin, "MANUAL_UI");
-else                    pumpStartForMinutes(*g_st, g_cfg->evening.runMin, "MANUAL_UI");
+      if (which == "Morning" || which == "Zone1") {
+        pumpStartForMinutes(*g_st, g_cfg->morning.runMin, g_cfg->twoRelayVersion ? "MANUAL_Z1" : "MANUAL_UI");
+      } else if (g_cfg->twoRelayVersion) {
+        pumpStartForSeconds(*g_st, g_cfg->evening.runSec, 2, "MANUAL_Z2");
+      } else {
+        pumpStartForMinutes(*g_st, g_cfg->evening.runMin, "MANUAL_UI");
+      }
 
       out["ok"] = true;
       sendJson(req, out); });
@@ -452,6 +477,7 @@ else                    pumpStartForMinutes(*g_st, g_cfg->evening.runMin, "MANUA
       if (in.containsKey("notify_errors"))  g_cfg->notifyErrors  = in["notify_errors"];
       if (in.containsKey("notify_status"))  g_cfg->notifyStatus  = in["notify_status"];
       if (in.containsKey("smtp_ssl")) g_cfg->smtpUseSsl = in["smtp_ssl"];
+      if (in.containsKey("two_relay_version")) g_cfg->twoRelayVersion = in["two_relay_version"];
 
       uint16_t mqttPort = in["mqtt_port"] | g_cfg->mqttPort;
       uint16_t smtpPort = in["smtp_port"] | g_cfg->smtpPort;

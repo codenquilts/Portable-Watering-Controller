@@ -3,6 +3,7 @@
 
 // ---------------- Pins ----------------
 static constexpr uint8_t PIN_RELAY = 16;
+static constexpr uint8_t PIN_RELAY2 = 17;
 
 // Relay output logic level (set these to match your relay board)
 #ifndef RELAY_ON_LEVEL
@@ -26,7 +27,7 @@ static constexpr uint8_t PIN_RELAY = 16;
 // Firmware identity
 // ----------------------------
 #define APP_NAME "Portable Watering Bin"
-#define FW_VERSION "1.6.0" // <-- change only this when you release
+#define FW_VERSION "1.7.0" // <-- change only this when you release
 #define FW_BUILD __DATE__ " " __TIME__
 
 // ADC (voltage sense)
@@ -40,6 +41,8 @@ static constexpr float TANK_MIN_ML = 500.0f;
 // ---------------- Scheduler limits ----------------
 static constexpr uint8_t RUN_MIN_MINUTES = 1;
 static constexpr uint8_t RUN_MAX_MINUTES = 15;
+static constexpr uint16_t RUN_MIN_SECONDS = 1;
+static constexpr uint16_t RUN_MAX_SECONDS = RUN_MAX_MINUTES * 60U;
 
 // ---------------- Time ----------------
 static const char *TZ_INFO = "AEST-10AEDT,M10.1.0/2,M4.1.0/3"; // Melbourne TZ rule

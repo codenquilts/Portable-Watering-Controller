@@ -42,13 +42,16 @@ bool loadConfig(DeviceCfg& cfg) {
 
   cfg.morning.startHHMM = prefs.getUShort("mStart", cfg.morning.startHHMM);
   cfg.morning.runMin    = prefs.getUChar("mRun",   cfg.morning.runMin);
+  cfg.morning.runSec    = prefs.getUShort("mRunS",  (uint16_t)cfg.morning.runMin * 60U);
   cfg.morning.enabled   = prefs.getBool("mEn",     cfg.morning.enabled);
   cfg.morning.daysMask  = prefs.getUChar("mDays",  cfg.morning.daysMask);
 
   cfg.evening.startHHMM = prefs.getUShort("eStart", cfg.evening.startHHMM);
   cfg.evening.runMin    = prefs.getUChar("eRun",    cfg.evening.runMin);
+  cfg.evening.runSec    = prefs.getUShort("eRunS",   (uint16_t)cfg.evening.runMin * 60U);
   cfg.evening.enabled   = prefs.getBool("eEn",      cfg.evening.enabled);
   cfg.evening.daysMask  = prefs.getUChar("eDays",   cfg.evening.daysMask);
+  cfg.twoRelayVersion   = prefs.getBool("twoRelay", cfg.twoRelayVersion);
 
   cfg.tankLevelMl   = prefs.getFloat("tankLvl", cfg.tankLevelMl);
   cfg.usageMl       = prefs.getFloat("usage",   cfg.usageMl);
@@ -94,13 +97,16 @@ bool saveConfig(const DeviceCfg& cfg) {
 
   prefs.putUShort("mStart", cfg.morning.startHHMM);
   prefs.putUChar ("mRun",   cfg.morning.runMin);
+  prefs.putUShort("mRunS",  cfg.morning.runSec);
   prefs.putBool  ("mEn",    cfg.morning.enabled);
   prefs.putUChar ("mDays",  cfg.morning.daysMask);
 
   prefs.putUShort("eStart", cfg.evening.startHHMM);
   prefs.putUChar ("eRun",   cfg.evening.runMin);
+  prefs.putUShort("eRunS",  cfg.evening.runSec);
   prefs.putBool  ("eEn",    cfg.evening.enabled);
   prefs.putUChar ("eDays",  cfg.evening.daysMask);
+  prefs.putBool  ("twoRelay", cfg.twoRelayVersion);
 
   prefs.putFloat("tankLvl", cfg.tankLevelMl);
   prefs.putFloat("usage",   cfg.usageMl);
