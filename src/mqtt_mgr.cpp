@@ -101,7 +101,7 @@ static String haDeviceJson() {
   out += ',';
 
   out += '"'; out += "mf"; out += '"'; out += ':';
-  out += '"'; out += "OpenAI"; out += '"';
+  out += '"'; out += ""; out += '"';
   out += ',';
 
   out += '"'; out += "sw"; out += '"'; out += ':';
