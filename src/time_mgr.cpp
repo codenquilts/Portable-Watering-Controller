@@ -81,6 +81,18 @@ void timeSaveAnchorIfValid() {
   prefs.end();
 }
 
+bool timeClearSavedAnchor() {
+  if (!prefs.begin("time", false)) return false;
+  const bool ok = prefs.clear();
+  prefs.end();
+  g_valid = false;
+  g_src = TimeSource::NONE;
+  g_baseEpoch = 0;
+  g_baseMs = millis();
+  g_lastSaveMs = 0;
+  return ok;
+}
+
 void timeOnWifiConnected() {
   // Non-blocking: NTP will sync in background. We detect validity in timeLoop().
   // Melbourne TZ (AEST/AEDT)

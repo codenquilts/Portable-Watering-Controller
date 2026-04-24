@@ -12,6 +12,7 @@ void timeBegin();                 // offline-safe init (no WiFi required)
 void timeLoop();                  // non-blocking upkeep
 void timeOnWifiConnected();       // call once when WiFi transitions to connected
 void timeSaveAnchorIfValid();     // persist clock anchor when valid
+bool timeClearSavedAnchor();      // clear persisted clock anchor
 
 bool timeIsValid();
 TimeSource timeSource();

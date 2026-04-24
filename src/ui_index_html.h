@@ -18,6 +18,7 @@
 // POST /api/device
 // POST /api/wifi/setup
 // POST /api/wifi/reset
+// POST /api/factoryReset
 
 static const char INDEX_HTML[] PROGMEM = R"HTML(
 <!DOCTYPE html>
@@ -299,6 +300,7 @@ hr.sep{border:none;border-top:1px solid #eee;margin:.8rem 0;}
     <div class="buttons">
       <button class="btn-run" style="width:100%" onclick="startWifiSetup()">Start Wi-Fi Setup (reboot)</button>
       <button class="btn-off" style="width:100%" onclick="resetWifi()">Reset Wi-Fi (forget)</button>
+      <button class="btn-off" style="width:100%" onclick="factoryReset()">Factory Reset All Settings</button>
     </div>
 
     <div class="note" style="margin-top:.8rem">
@@ -625,6 +627,17 @@ async function resetWifi(){
   }catch(e){
     console.error(e);
     showToast("Reset failed");
+  }
+}
+
+async function factoryReset(){
+  if(!confirm("Factory reset all saved settings, MQTT, email, schedules, tank state, time, and Wi-Fi credentials?")) return;
+  showToast("Factory resetting...");
+  try{
+    await apiPost("/api/factoryReset", {});
+  }catch(e){
+    console.error(e);
+    showToast("Factory reset failed");
   }
 }
 

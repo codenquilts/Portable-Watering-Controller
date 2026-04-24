@@ -17,6 +17,7 @@ bool wifiIsSetupMode();
 void wifiEnterSetupMode();     // set flag + reboot
 void wifiClearSetupModeFlag(); // clear flag after successful setup (optional)
 void wifiResetCredentials();   // forget WiFi + reboot
+void wifiForgetCredentials();  // forget WiFi without reboot
 
 // ---- Built-in WiFi Manager ----
 std::vector<String> wifiScanNetworks();

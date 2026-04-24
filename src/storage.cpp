@@ -120,6 +120,13 @@ bool saveConfig(const DeviceCfg& cfg) {
   return true;
 }
 
+bool clearConfigStorage() {
+  if (!prefs.begin("watering", false)) return false;
+  const bool ok = prefs.clear();
+  prefs.end();
+  return ok;
+}
+
 void resetDailyTriggers(DeviceCfg& cfg) {
   cfg.morning.triggered = false;
   cfg.evening.triggered = false;

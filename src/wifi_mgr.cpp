@@ -71,10 +71,16 @@ void wifiClearSetupModeFlag() {
 
 void wifiResetCredentials() {
   Serial.println("WiFiManager: reset settings + reboot");
-  wm.resetSettings();
-  WiFi.disconnect(true, true);
+  wifiForgetCredentials();
   delay(200);
   ESP.restart();
+}
+
+void wifiForgetCredentials() {
+  Serial.println("WiFiManager: clearing saved WiFi credentials");
+  wifiClearSetupModeFlag();
+  wm.resetSettings();
+  WiFi.disconnect(true, true);
 }
 
 WifiModeState wifiBegin(DeviceCfg& cfg) {

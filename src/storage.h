@@ -58,5 +58,6 @@ struct DeviceCfg {
 
 bool loadConfig(DeviceCfg& cfg);
 bool saveConfig(const DeviceCfg& cfg);
+bool clearConfigStorage();
 
 void resetDailyTriggers(DeviceCfg& cfg);

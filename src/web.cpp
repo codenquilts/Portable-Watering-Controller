@@ -392,6 +392,25 @@ void webBegin(DeviceCfg &cfg, RuntimeState &st, SensorsState &ss)
       delay(250);
       wifiResetCredentials(); });
 
+  server.on("/api/factoryReset", HTTP_POST, [](AsyncWebServerRequest *req) {}, nullptr, [](AsyncWebServerRequest *req, uint8_t *, size_t, size_t, size_t)
+            {
+
+      StaticJsonDocument<160> out;
+      const bool cfgCleared = clearConfigStorage();
+      const bool timeCleared = timeClearSavedAnchor();
+
+      *g_cfg = DeviceCfg{};
+      resetDailyTriggers(*g_cfg);
+      wifiForgetCredentials();
+
+      out["ok"] = cfgCleared && timeCleared;
+      if (!out["ok"]) out["err"] = "clear_failed";
+      out["msg"] = "factory_resetting";
+      sendJson(req, out);
+
+      delay(250);
+      ESP.restart(); });
+
   server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *req)
             {
       std::vector<String> networks = wifiScanNetworks();

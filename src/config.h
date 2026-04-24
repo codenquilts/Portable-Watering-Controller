@@ -55,7 +55,7 @@ static const char *DEFAULT_AP_PASS = "water1234"; // change later
 
 // ---------------- MQTT ----------------
 #ifndef MQTT_HOST
-#define MQTT_HOST "192.168.0.17"
+#define MQTT_HOST ""
 #endif
 
 #ifndef MQTT_PORT
