@@ -2,8 +2,16 @@
 #include <Arduino.h>
 
 // ---------------- Pins ----------------
-static constexpr uint8_t PIN_RELAY = 16;
-static constexpr uint8_t PIN_RELAY2 = 17;
+#ifndef PWB_PIN_RELAY
+#define PWB_PIN_RELAY 16
+#endif
+
+#ifndef PWB_PIN_RELAY2
+#define PWB_PIN_RELAY2 17
+#endif
+
+static constexpr uint8_t PIN_RELAY = PWB_PIN_RELAY;
+static constexpr uint8_t PIN_RELAY2 = PWB_PIN_RELAY2;
 
 // Relay output logic level (set these to match your relay board)
 #ifndef RELAY_ON_LEVEL
@@ -31,7 +39,11 @@ static constexpr uint8_t PIN_RELAY2 = 17;
 #define FW_BUILD __DATE__ " " __TIME__
 
 // ADC (voltage sense)
-static constexpr uint8_t PIN_ADC_VBAT = 34; // input only pin (good choice)
+#ifndef PWB_PIN_ADC_VBAT
+#define PWB_PIN_ADC_VBAT 34
+#endif
+
+static constexpr uint8_t PIN_ADC_VBAT = PWB_PIN_ADC_VBAT;
 
 // ---------------- Tank model ----------------
 static constexpr float TANK_TOTAL_ML = 55000.0f;
